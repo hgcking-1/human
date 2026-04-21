@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>(주)휴먼엠에스 - 기업 통합 포털 (보안)</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css" />
+</head>
+<script>
+    // 브라우저 감지 로직
+    window.onload = function() {
+        var isChrome = /Chrome/.test(navigator.userAgent) && /Google Inc/.test(navigator.vendor);
+        var isEdge = /Edg/.test(navigator.userAgent); // Edge도 Chrome 엔진을 쓰므로 구분 필요
+        
+        if (!isChrome || isEdge) {
+            const warningDiv = document.createElement('div');
+            warningDiv.style.cssText = 'position:fixed; top:0; left:0; width:100%; background:#e74c3c; color:white; text-align:center; padding:10px; z-index:10000; font-weight:bold; font-size:0.9rem;';
+            warningDiv.innerHTML = '⚠️ 본 사이트는 Google Chrome 브라우저에 최적화되어 있습니다. 원활한 이용을 위해 크롬 브라우저를 사용해 주세요.';
+            document.body.prepend(warningDiv);
+        }
+    };
+</script>
+<body>
+    <div id="loading-overlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(255,255,255,0.8); z-index:9999; justify-content:center; align-items:center;">
+        <div style="text-align:center;">
+            <div class="spinner"></div>
+            <p>데이터 동기화 중입니다...</p>
+        </div>
+    </div>
+
+    <div class="overlay">
+        <header>
+            <div class="logo">
+                <h1>(주)휴먼엠에스 & (주)채움서비스</h1>
+            </div>
+            <nav>
+                <span id="user-grade-badge" style="display:none; margin-right: 10px;" class="status-tag"></span>
+                <a href="#dashboard">재무분석</a>
+                <a href="#library">전사 자료실</a>
+                <button class="btn-sm" onclick="window.open('https://drive.google.com/drive/folders/1D8EvaXfAsyIt_VJ0-MrTzOJlcXdaG2oW', '_blank')" style="background: #4285F4; color: white; border:none; margin-left:10px;">☁️ 구글 드라이브</button>
+                <div class="dropdown" style="display:inline-block; margin-left:1.5rem; position: relative;">
+                    <button class="btn-sm" id="login-btn" onclick="toggleModal('login-modal')">로그인</button>
+                    <button class="btn-sm" id="signup-btn" onclick="toggleModal('signup-modal')" style="background: var(--accent-color); color: white; border:none;">회원가입</button>
+                    
+                    <!-- Login Modal -->
+                    <div id="login-modal" class="glass-card auth-modal">
+                        <h4>보안 로그인</h4>
+                        <input type="text" id="login-id" placeholder="아이디" class="auth-input">
+                        <input type="password" id="login-pw" placeholder="비밀번호" class="auth-input">
+                        <button class="btn btn-primary" style="width:100%;" onclick="handleSecureLogin()">접속하기</button>
+                        <p style="font-size: 0.7rem; color: #666; margin-top: 10px;">* 승인된 회원만 접속 가능합니다.</p>
+                    </div>
+
+                    <!-- Signup Modal -->
+                    <div id="signup-modal" class="glass-card auth-modal" style="width: 300px;">
+                        <h4>회원가입 신청</h4>
+                        <input type="text" id="reg-name" placeholder="이름 (실명)" class="auth-input">
+                        <input type="text" id="reg-phone" placeholder="전화번호 (010-0000-0000)" class="auth-input">
+                        <input type="text" id="reg-address" placeholder="주소" class="auth-input">
+                        <hr style="opacity: 0.2; margin: 10px 0;">
+                        <input type="text" id="reg-id" placeholder="희망 아이디" class="auth-input">
+                        <input type="password" id="reg-pw" placeholder="비밀번호" class="auth-input">
+                        <select id="reg-grade" class="auth-input">
+                            <option value="B">B등급 (일반)</option>
+                            <option value="A">A등급 (마스터)</option>
+                        </select>
+                        <button class="btn btn-primary" style="width:100%;" onclick="handleSignUp()">가입 신청하기</button>
+                    </div>
+                </div>
+            </nav>
+        </header>
+
+        <!-- Admin Approval Section (Hidden by default) -->
+        <div id="admin-panel" class="container" style="display:none; margin-top: 2rem;">
+            <div class="glass-card">
+                <h3>👥 가입 승인 대기 명단 (관리자 전용)</h3>
+                <div id="pending-users-list" style="overflow-x:auto;">
+                    <table style="width:100%; border-collapse: collapse; font-size: 0.85rem;">
+                        <thead>
+                            <tr style="background: rgba(0,0,0,0.05);">
+                                <th style="padding:10px; border-bottom:1px solid #ddd;">이름</th>
+                                <th style="padding:10px; border-bottom:1px solid #ddd;">ID</th>
+                                <th style="padding:10px; border-bottom:1px solid #ddd;">전화번호</th>
+                                <th style="padding:10px; border-bottom:1px solid #ddd;">요청등급</th>
+                                <th style="padding:10px; border-bottom:1px solid #ddd;">신청시간</th>
+                                <th style="padding:10px; border-bottom:1px solid #ddd;">관리</th>
+                            </tr>
+                        </thead>
+                        <tbody id="pending-table-body"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <section class="hero">
+            <h2>그룹 경영 통합 대시보드</h2>
+            <p>(주)휴먼엠에스 | (주)채움서비스 - 신뢰와 가치를 창출하는 통합 관리 전문 그룹</p>
+        </section>
+
+        <!-- Floating Sync Button -->
+        <div style="position: fixed; left: 20px; bottom: 20px; z-index: 1000;">
+            <button class="btn btn-primary" onclick="simulateGlobalSync()" style="box-shadow: 0 4px 20px rgba(0,0,0,0.2); border-radius: 12px; padding: 0.6rem 1.2rem; font-size: 0.85rem;">🔄 전사 데이터 실시간 동기화</button>
+        </div>
+
+        <!-- Real-time Active Users Widget (Admin Only) -->
+        <div id="active-users-widget" style="display:none; position: fixed; right: 20px; bottom: 20px; z-index: 1000; width: 220px;" class="glass-card">
+            <h4 style="font-size: 0.85rem; color: var(--primary-color); margin-bottom: 10px; border-bottom: 1px solid #eee; padding-bottom: 5px;">👥 실시간 접속 사용자</h4>
+            <div id="active-users-list" style="max-height: 150px; overflow-y: auto;">
+                <p style="font-size: 0.75rem; color: #999; text-align: center; padding: 10px;">접속자 확인 중...</p>
+            </div>
+        </div>
+
+        <div class="container-fluid" style="padding: 0;">
+            <div style="display: flex; gap: 0; align-items: flex-start; min-height: 100vh;">
+                
+                <!-- Left Side: (주)휴먼엠에스 -->
+                <div style="flex: 1; padding: 20px; border-right: 2px solid #ddd;">
+                    <h2 style="text-align: center; padding: 15px; background: var(--primary-color); color: white; border-radius: 12px; margin-bottom: 20px; font-size: 1.2rem; display: flex; align-items: center; justify-content: center; gap: 10px;">
+                        <span style="font-size: 1.5rem;">🏢</span> (주)휴먼엠에스 경영 총괄
+                    </h2>
+                    
+                    <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));">
+                        <!-- 1. 미입금 -->
+                        <div class="glass-card dashboard-card" id="h-card-unpaid" style="grid-column: 1 / -1; border-top: 5px solid var(--danger-color);">
+                            <h3>🔴 미입금 현황 (휴먼)</h3>
+                            <div class="stat-value masked-data" id="h-val-unpaid" style="color: var(--danger-color); font-size: 2.2rem;">●●●,●●●원</div>
+                            <p class="stat-label">로그인 후 확인 가능</p>
+                            <button class="btn-sm" onclick="openSecureDetail('human_unpaid')">상세보기/수정</button>
+                        </div>
+
+                        <!-- 2. 매출액 -->
+                        <div class="glass-card dashboard-card" id="h-card-sales" style="border-top: 5px solid var(--accent-color);">
+                            <h3>📈 매출액 (2026)</h3>
+                            <div class="stat-value masked-data" id="h-val-sales" style="color: var(--accent-color); font-size: 1.8rem;">●●●,●●●원</div>
+                            <button class="btn-sm" onclick="openSecureDetail('human_sales')">상세보기</button>
+                        </div>
+
+                        <!-- 3. 매입계산서 -->
+                        <div class="glass-card dashboard-card" id="h-card-purchase" style="border-top: 5px solid #9b59b6;">
+                            <h3>📑 매입계산서</h3>
+                            <div class="masked-data" id="h-val-purchase" style="min-height: 80px; display: flex; align-items: center; justify-content: center;">
+                                <div class="stat-value" style="font-size: 1.8rem;">●●●,●●●원</div>
+                            </div>
+                            <button class="btn-sm" onclick="openSecureDetail('human_purchase')">상세보기</button>
+                        </div>
+
+                        <!-- 은행 계좌 현황 -->
+                        <div class="glass-card dashboard-card" id="h-card-bank" style="border-top: 5px solid #2980b9;">
+                            <h3>🏦 은행 계좌 현황</h3>
+                            <div class="stat-value masked-data" id="h-val-bank" style="color: #2980b9; font-size: 1.5rem;">●●●,●●●원</div>
+                            <button class="btn-sm" onclick="openSecureDetail('human_bank')">계좌관리</button>
+                        </div>
+
+                        <!-- 4. 현재 잔액 장부 -->
+                        <div class="glass-card dashboard-card" id="h-card-ledger">
+                            <h3>📒 현재 잔액 장부</h3>
+                            <div class="stat-value masked-data" id="h-val-ledger" style="color: var(--success-color); font-size: 1.5rem;">●●●,●●●원</div>
+                            <button class="btn-sm" onclick="openSecureDetail('human_ledger')">상세보기</button>
+                        </div>
+
+                        <!-- 5. 2026년 현재 잔액 -->
+                        <div class="glass-card dashboard-card" id="h-card-bal-2026">
+                            <h3>📅 2026년 현재 잔액</h3>
+                            <div class="stat-value masked-data" id="h-val-bal-2026" style="font-size: 1.4rem;">●●●,●●●원</div>
+                        </div>
+
+                        <!-- 8. 휴먼 매월 사용내역 -->
+                        <div class="glass-card dashboard-card" id="h-card-usage">
+                            <h3>💳 매월 사용내역</h3>
+                            <div class="stat-value masked-data" id="h-val-usage" style="font-size: 1.4rem;">●●●,●●●원</div>
+                        </div>
+
+                        <!-- 11. 일용직 근무 내역 -->
+                        <div class="glass-card dashboard-card" id="h-card-daily-worker" style="grid-column: 1 / -1; border-top: 5px solid #16a085;">
+                            <h3>👷 일용직 근무 내역 (휴먼)</h3>
+                            <div class="stat-value masked-data" id="h-val-daily-worker" style="color: #16a085; font-size: 1.5rem;">●●●,●●●원</div>
+                            <div style="display: flex; gap: 5px; justify-content: center; flex-wrap: wrap; margin-top: 10px;">
+                                <button class="btn-sm" onclick="openSecureDetail('human_worker_company')">업체별</button>
+                                <button class="btn-sm" onclick="openSecureDetail('human_worker_foreign')">외국인</button>
+                                <button class="btn-sm" onclick="openSecureDetail('human_worker_date')">일자별</button>
+                                <button class="btn-sm" onclick="openSecureDetail('human_worker_cash')">입출금양식</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right Side: (주)채움서비스 -->
+                <div style="flex: 1; padding: 20px; background: rgba(230, 126, 34, 0.03);">
+                    <h2 style="text-align: center; padding: 15px; background: #e67e22; color: white; border-radius: 12px; margin-bottom: 20px; font-size: 1.2rem; display: flex; align-items: center; justify-content: center; gap: 10px;">
+                        <span style="font-size: 1.5rem;">🏢</span> (주)채움서비스 경영 총괄
+                    </h2>
+                    
+                    <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));">
+                        <!-- 1. 미입금 -->
+                        <div class="glass-card dashboard-card" id="c-card-unpaid" style="grid-column: 1 / -1; border-top: 5px solid var(--danger-color);">
+                            <h3>🔴 미입금 현황 (채움서비스)</h3>
+                            <div class="stat-value masked-data" id="c-val-unpaid" style="color: var(--danger-color); font-size: 2.2rem;">●●●,●●●원</div>
+                            <p class="stat-label">로그인 후 확인 가능</p>
+                            <button class="btn-sm" onclick="openSecureDetail('chaeum_unpaid')">상세보기/수정</button>
+                        </div>
+
+                        <!-- 2. 매출액 -->
+                        <div class="glass-card dashboard-card" id="c-card-sales" style="border-top: 5px solid var(--accent-color);">
+                            <h3>📈 매출액 (2026)</h3>
+                            <div class="stat-value masked-data" id="c-val-sales" style="color: var(--accent-color); font-size: 1.8rem;">●●●,●●●원</div>
+                            <button class="btn-sm" onclick="openSecureDetail('chaeum_sales')">상세보기</button>
+                        </div>
+
+                        <!-- 3. 매입계산서 -->
+                        <div class="glass-card dashboard-card" id="c-card-purchase" style="border-top: 5px solid #9b59b6;">
+                            <h3>📑 매입계산서</h3>
+                            <div class="masked-data" id="c-val-purchase" style="min-height: 80px; display: flex; align-items: center; justify-content: center;">
+                                <div class="stat-value" style="font-size: 1.8rem;">●●●,●●●원</div>
+                            </div>
+                            <button class="btn-sm" onclick="openSecureDetail('chaeum_purchase')">상세보기</button>
+                        </div>
+
+                        <!-- 은행 계좌 현황 -->
+                        <div class="glass-card dashboard-card" id="c-card-bank" style="border-top: 5px solid #2980b9;">
+                            <h3>🏦 은행 계좌 현황</h3>
+                            <div class="stat-value masked-data" id="c-val-bank" style="color: #2980b9; font-size: 1.5rem;">●●●,●●●원</div>
+                            <button class="btn-sm" onclick="openSecureDetail('chaeum_bank')">계좌관리</button>
+                        </div>
+
+                        <!-- 4. 현재 잔액 장부 -->
+                        <div class="glass-card dashboard-card" id="c-card-ledger">
+                            <h3>📒 현재 잔액 장부</h3>
+                            <div class="stat-value masked-data" id="c-val-ledger" style="color: var(--success-color); font-size: 1.5rem;">●●●,●●●원</div>
+                            <button class="btn-sm" onclick="openSecureDetail('chaeum_ledger')">상세보기</button>
+                        </div>
+
+                        <!-- 5. 2026년 현재 잔액 -->
+                        <div class="glass-card dashboard-card" id="c-card-bal-2026">
+                            <h3>📅 2026년 현재 잔액</h3>
+                            <div class="stat-value masked-data" id="c-val-bal-2026" style="font-size: 1.4rem;">●●●,●●●원</div>
+                        </div>
+
+                        <!-- 8. 채움서비스 매월 사용내역 -->
+                        <div class="glass-card dashboard-card" id="c-card-usage">
+                            <h3>💳 매월 사용내역</h3>
+                            <div class="stat-value masked-data" id="c-val-usage" style="font-size: 1.4rem;">●●●,●●●원</div>
+                        </div>
+
+                        <!-- 11. 일용직 근무 내역 -->
+                        <div class="glass-card dashboard-card" id="c-card-daily-worker" style="grid-column: 1 / -1; border-top: 5px solid #16a085;">
+                            <h3>👷 일용직 근무 내역 (채움서비스)</h3>
+                            <div class="stat-value masked-data" id="c-val-daily-worker" style="color: #16a085; font-size: 1.5rem;">●●●,●●●원</div>
+                            <div style="display: flex; gap: 5px; justify-content: center; flex-wrap: wrap; margin-top: 10px;">
+                                <button class="btn-sm" onclick="openSecureDetail('chaeum_worker_company')">업체별</button>
+                                <button class="btn-sm" onclick="openSecureDetail('chaeum_worker_foreign')">외국인</button>
+                                <button class="btn-sm" onclick="openSecureDetail('chaeum_worker_date')">일자별</button>
+                                <button class="btn-sm" onclick="openSecureDetail('chaeum_worker_cash')">입출금양식</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+        <style>
+            .masked-data { filter: blur(5px); transition: filter 0.5s; pointer-events: none; user-select: none; }
+            .unmasked { filter: blur(0); pointer-events: auto; user-select: text; }
+            .dashboard-card { text-align: center; padding: 1.5rem; transition: all 0.3s ease; }
+            .dashboard-card h3 { font-size: 1rem; color: #7f8c8d; margin-bottom: 0.5rem; }
+            .btn-sm { padding: 0.3rem 0.8rem; font-size: 0.75rem; border-radius: 5px; border: 1px solid var(--accent-color); background: none; color: var(--accent-color); cursor: pointer; }
+            .btn-sm:hover { background: var(--accent-color); color: white; }
+        </style>
+
+        <footer>
+            <p>&copy; 2026 (주)휴먼엠에스 | 통합 시설 관리 보안 데이터 포털</p>
+        </footer>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>

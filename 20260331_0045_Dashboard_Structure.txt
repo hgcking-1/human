@@ -1,0 +1,8 @@
+날짜: 2026-03-31
+시간: 00:45
+작업: 휴먼 재무 제표 대시보드 웹페이지 기본 구조 생성
+내용:
+- C:\Users\user\Desktop\claude_work\financial_dashboard 폴더 생성
+- index.html: 연도/월별 접근 메뉴를 포함한 메인 페이지 제작
+- style.css: 현대적인 대시보드 스타일링 적용
+- 엑셀 데이터 추출 시도 중(timeout 발생으로 후속 작업 필요)

@@ -1,0 +1,612 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>HUMAN - 데이터 편집기</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        body { background: #f0f2f5; padding: 1rem; font-family: 'Pretendard', -apple-system, sans-serif; }
+        .editor-container { max-width: 98%; margin: 0 auto; background: white; padding: 1.5rem; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); max-height: 95vh; display: flex; flex-direction: column; overflow: hidden; }
+        .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; background: #ffffff; padding: 0.8rem 1.2rem; border-radius: 8px; border: 1px solid #dee2e6; box-shadow: 0 2px 4px rgba(0,0,0,0.02); flex-shrink: 0; }
+        .table-wrapper { flex-grow: 1; overflow: auto; border: 1px solid #dee2e6; border-radius: 4px; background: #fafafa; }
+        table { width: 100%; border-collapse: collapse; background: white; table-layout: fixed; border: 1px solid #dee2e6; }
+        th { background: #34495e; color: white; position: sticky; top: 0; padding: 8px 10px; font-weight: 600; font-size: 0.75rem; border: 1px solid #2c3e50; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; z-index: 100; }
+        td { padding: 6px 10px; border: 1px solid #dee2e6; font-size: 0.75rem; color: #333; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+        tr:nth-child(even) { background-color: #f8f9fa; }
+        tr:hover { background-color: #edf2f7; }
+        [contenteditable="true"] { background: #fffde7; outline: none; transition: background 0.2s; z-index: 1; }
+        [contenteditable="true"]:focus { background: #fff; box-shadow: inset 0 0 0 2px #3498db; z-index: 10; position: relative; }
+        
+        .btn-group { display: flex; gap: 8px; align-items: center; }
+        .upload-label { padding: 0.5rem 0.8rem; background: #27ae60; color: white; border-radius: 4px; cursor: pointer; font-size: 0.8rem; display: flex; align-items: center; gap: 5px; font-weight: 500; }
+        .btn-reset { padding: 0.5rem 0.8rem; background: #e67e22; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.8rem; font-weight: 500; }
+        .btn-primary { padding: 0.5rem 1rem; background: #3498db; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.8rem; font-weight: 600; }
+        .btn-sm { padding: 0.5rem 0.8rem; background: #95a5a6; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.8rem; }
+        
+        .month-group-divider { border-top: 3px solid #2c3e50 !important; }
+        .month-bg-0 { background-color: #ffffff !important; }
+        .month-bg-1 { background-color: #f1f8e9 !important; } /* 연그린 */
+        .month-bg-2 { background-color: #e3f2fd !important; } /* 연블루 */
+        .month-bg-3 { background-color: #fff3e0 !important; } /* 연오렌지 */
+        .month-bg-0:hover, .month-bg-1:hover, .month-bg-2:hover, .month-bg-3:hover { background-color: #edf2f7 !important; }
+        
+        .total-row { background-color: #e0f2f1 !important; font-weight: bold; color: #00695c; border-top: 2px solid #00695c; border-bottom: 2px solid #00695c; }
+        .week-total-row { background-color: #fff9c4 !important; font-weight: bold; color: #f57f17; border-top: 1px solid #f57f17; border-bottom: 1px solid #f57f17; }
+        .total-label { text-align: right !important; padding-right: 20px !important; }
+        
+        .num-cell { text-align: right; font-family: 'Roboto Mono', monospace; }
+        .footer-info { display: flex; justify-content: space-between; align-items: center; margin-top: 0.8rem; flex-shrink: 0; }
+
+        /* 업체명 클릭 스타일 */
+        .company-link { color: #2980b9; text-decoration: underline; cursor: pointer; font-weight: bold; }
+        .company-link:hover { color: #1a5276; }
+
+        /* 모달 스타일 */
+        .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); }
+        .modal-content { background: white; margin: 5% auto; padding: 20px; border-radius: 12px; width: 80%; max-height: 80vh; overflow-y: auto; box-shadow: 0 5px 15px rgba(0,0,0,0.3); }
+        .modal-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #eee; padding-bottom: 10px; margin-bottom: 15px; }
+        .close { font-size: 28px; font-weight: bold; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <div class="editor-container">
+        <div class="toolbar">
+            <div style="display:flex; align-items:center; gap:15px;">
+                <h2 id="editor-title" style="margin:0; color: #2c3e50; font-size: 1.1rem;">📊 데이터 편집기</h2>
+                <span id="file-info" style="font-size: 0.7rem; color: #7f8c8d; background: #eee; padding: 2px 8px; border-radius: 10px;">데이터 연동 중...</span>
+            </div>
+            <div class="btn-group">
+                <button class="btn-reset" id="master-add-row" style="display:none; background:#8e44ad;" onclick="addRow()">➕ 행 추가</button>
+                <button class="btn-reset" onclick="resetToOriginal()">🔄 원본 초기화</button>
+                <button class="btn-reset" style="background: #4285F4;" onclick="importFromGoogleDrive()">☁️ 구글 드라이브 가져오기</button>
+                <label class="upload-label">
+                    📁 엑셀 업로드
+                    <input type="file" id="excel-upload" accept=".xlsx, .xls">
+                </label>
+                <button class="btn btn-primary" onclick="saveData()">💾 변경사항 저장</button>
+                <button class="btn-sm" onclick="window.close()">닫기</button>
+            </div>
+        </div>
+        
+        <div class="table-wrapper" id="editor-content">
+            <p style="text-align:center; padding:3rem; color:#95a5a6;">데이터를 불러오는 중...</p>
+        </div>
+        
+        <div class="footer-info">
+            <p id="footer-desc" style="font-size: 0.7rem; color: #7f8c8d; margin: 0;">* 화면 최적화 데이터 표시 중... (마스터는 전체 편집 가능)</p>
+            <div id="status-msg" style="font-size: 0.7rem; font-weight: bold; color: #2980b9;"></div>
+        </div>
+    </div>
+
+    <!-- 상세 내역 모달 -->
+    <div id="company-detail-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="modal-company-name" style="margin:0; font-size: 1.2rem; color: #2c3e50;">업체 상세 내역</h2>
+                <span class="close" onclick="closeModal()">&times;</span>
+            </div>
+            <div id="modal-summary" style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 15px; display: flex; gap: 30px;">
+                <div><span style="color: #7f8c8d;">총 지급액:</span> <b id="modal-total-paid" style="color: #e67e22; font-size: 1.1rem;">0원</b></div>
+                <div><span style="color: #7f8c8d;">총 청구액:</span> <b id="modal-total-billed" style="color: #2980b9; font-size: 1.1rem;">0원</b></div>
+            </div>
+            <div id="modal-table-container"></div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <script>
+        const urlParams = new URLSearchParams(window.location.search);
+        const type = urlParams.get('type');
+        let currentUser = null;
+        let allSheetsData = {}; // 모든 시트 데이터를 저장할 객체
+        
+        document.addEventListener('DOMContentLoaded', () => {
+            const session = JSON.parse(localStorage.getItem('userSession'));
+            if (!session) {
+                alert('접근 권한이 없습니다. 로그인이 필요합니다.');
+                window.close();
+                return;
+            }
+            currentUser = session;
+            if (session.id === 'admin' || session.isMaster) {
+                document.getElementById('master-add-row').style.display = 'block';
+            }
+            loadData();
+        });
+
+        function addRow() {
+            const tbody = document.querySelector('tbody');
+            const newRow = document.createElement('tr');
+            newRow.className = 'month-bg-0';
+            const colCount = document.querySelectorAll('th').length;
+            
+            let html = '';
+            for (let i = 0; i < colCount; i++) {
+                html += `<td contenteditable="true" data-row="new" data-col="${i}"></td>`;
+            }
+            html += `<td style="width:50px; text-align:center;"><button class="btn-sm" style="padding:2px 5px; color:red; border-color:red;" onclick="this.closest('tr').remove()">삭제</button></td>`;
+            
+            newRow.innerHTML = html;
+            tbody.insertBefore(newRow, tbody.firstChild);
+            document.getElementById('status-msg').textContent = '새 행이 추가되었습니다. 내용을 입력하고 저장하세요.';
+        }
+
+        async function resetToOriginal() {
+            if (!confirm('저장된 변경사항을 삭제하고 원본 파일을 다시 불러오시겠습니까?')) return;
+            localStorage.removeItem('data_' + type);
+            location.reload();
+        }
+
+        async function loadData() {
+            const title = document.getElementById('editor-title');
+            const container = document.getElementById('editor-content');
+            const fileInfo = document.getElementById('file-info');
+            
+            const fileMap = {
+                'human_unpaid': '2026.03-금전&세무_휴먼(1. 미입금).xlsx',
+                'human_sales': '2026.03-금전&세무_휴먼(2.매출액).xlsx',
+                'human_purchase': '2026.03-금전&세무_휴먼(3.매입계산서).xlsx',
+                'human_ledger': '2026.03-금전&세무_휴먼(4.현재 잔액 장부).xlsx',
+                'human_daily2026': '2026.03-금전&세무_휴먼(11.2026년매일별입금출금장).xlsx',
+                'human_daily2025': '2026.03-금전&세무_휴먼(12.2025년매일별입금출금장).xlsx',
+                'human_bank': '2026.03-금전&세무_휴먼(현재잔고현황).xlsx',
+                'human_worker_company': '2026.04-업체별.xlsx',
+                'human_worker_foreign': '2026.04-업체별_외국인.xlsx',
+                'human_worker_date': '2026.04-일자별_채움.xlsx',
+                'human_worker_cash': '2026.04-입출금양식_휴먼.xlsx',
+                'chaeum_unpaid': '2026.03-금전&세무_채움(1. 미입금).xlsx',
+                'chaeum_sales': '2026.03-금전&세무_채움(2.매출액).xlsx',
+                'chaeum_purchase': '2026.03-금전&세무_채움(3.매입계산서).xlsx',
+                'chaeum_ledger': '2026.03-금전&세무_채움(4.현재 잔액 장부).xlsx',
+                'chaeum_daily2026': '2026.03-금전&세무_채움(11.2026년매일별입금출금장).xlsx',
+                'chaeum_bank': '2026.03-금전&세무_채움(현재잔고현황).xlsx',
+                'chaeum_worker_company': '2026.04-업체별.xlsx',
+                'chaeum_worker_foreign': '2026.04-업체별_외국인.xlsx',
+                'chaeum_worker_date': '2026.04-일자별_채움.xlsx',
+                'chaeum_worker_cash': '2026.04-입출금양식_채움.xlsx'
+            };
+
+            const titleMap = {
+                'unpaid': '🔴 미입금 현황',
+                'sales': '📈 매출액 내역',
+                'purchase': '📑 매입계산서 내역',
+                'ledger': '📒 현재 잔액 장부',
+                'daily2026': '📊 2026 일별 입출금장',
+                'daily2025': '📉 2025 일별 입출금장',
+                'bank': '🏦 은행 계좌 현황',
+                'worker_company': '👷 일용직 근무 내역 (업체별)',
+                'worker_foreign': '👷 일용직 근무 내역 (외국인)',
+                'worker_date': '👷 일용직 근무 내역 (일자별)',
+                'worker_cash': '👷 일용직 입출금 내역'
+            };
+
+            const baseType = type.replace('human_', '').replace('chaeum_', '');
+            const companyName = type.startsWith('chaeum') ? '(주)채움서비스' : '(주)휴먼엠에스';
+            title.textContent = `${companyName} ${titleMap[baseType] || '데이터'} 조회/편집`;
+            
+            const saved = localStorage.getItem('data_' + type);
+            if (saved) {
+                try {
+                    const parsed = JSON.parse(saved);
+                    if (parsed.headers && parsed.data) {
+                        fileInfo.textContent = "저장된 데이터 로드";
+                        renderEditor(parsed.headers, parsed.data);
+                        return;
+                    }
+                } catch (e) {}
+            }
+
+            const fileName = fileMap[type];
+            if (!fileName) {
+                container.innerHTML = '<p style="text-align:center; padding:3rem; color:#95a5a6;">연동된 파일이 없습니다.</p>';
+                return;
+            }
+
+            try {
+                const response = await fetch(encodeURIComponent(fileName));
+                if (!response.ok) throw new Error('File not found');
+                const arrayBuffer = await response.arrayBuffer();
+                const workbook = XLSX.read(new Uint8Array(arrayBuffer), { type: 'array', dense: true });
+                
+                // 모든 시트 데이터 저장 (메인 요약 시트 제외)
+                allSheetsData = {};
+                workbook.SheetNames.forEach(sheetName => {
+                    if (sheetName !== "2026년 04월채움") {
+                        const ws = workbook.Sheets[sheetName];
+                        allSheetsData[sheetName] = XLSX.utils.sheet_to_json(ws, { header: 1 });
+                    }
+                });
+
+                const firstSheetName = workbook.SheetNames[0];
+                const worksheet = workbook.Sheets[firstSheetName];
+                const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+                
+                if (jsonData.length > 0) {
+                    fileInfo.textContent = "원본 연동됨";
+                    let startIdx = 0;
+                    if (jsonData[0] && jsonData[0].some(cell => cell && cell.toString().includes('근무일자') && !jsonData[0].some(c => c && c.toString().includes('업체명')))) {
+                        startIdx = 1;
+                    }
+                    renderEditor(jsonData[startIdx], jsonData.slice(startIdx + 1));
+                } else {
+                    container.innerHTML = `<p style="text-align:center; padding:3rem; color:#95a5a6;">파일에 데이터가 없습니다.</p>`;
+                }
+            } catch (error) {
+                container.innerHTML = `<p style="color:#e67e22; text-align:center; padding:2rem;">원본 엑셀 파일을 로컬에서 찾을 수 없습니다. <br>대신 <b>[엑셀 업로드]</b> 버튼을 눌러 파일을 직접 선택해 주세요.</p>`;
+            }
+        }
+
+        function renderEditor(headers, data) {
+            const container = document.getElementById('editor-content');
+            if (!data || data.length === 0) {
+                container.innerHTML = '<p style="text-align:center; padding:3rem; color:#95a5a6;">표시할 데이터가 없습니다.</p>';
+                return;
+            }
+            const isSales = type.includes('sales');
+            const isPurchase = type.includes('purchase');
+            const isLedger = type.includes('ledger');
+            const isBank = type.includes('bank');
+            const isWorkerCompany = type.includes('worker_company') || type.includes('worker_foreign');
+            const isWorkerDate = type.includes('worker_date');
+            const isWorkerCash = type.includes('worker_cash');
+            const isAnyWorker = isWorkerCompany || isWorkerDate || isWorkerCash;
+
+            let maxCols = 7; 
+            if (isLedger) maxCols = 8;
+            else if (isPurchase) maxCols = 6;
+            else if (isBank) maxCols = 3;
+            else if (isWorkerCompany) maxCols = 10; 
+            else if (isWorkerDate) maxCols = 12;
+            else if (isWorkerCash) maxCols = 9;
+
+            let displayHeaders = headers.slice(0, maxCols);
+            if (isSales) {
+                displayHeaders = ["작성일자", "상호", "합계금액", "공급가액", "세액", "비고", "입금일"];
+            } else if (isPurchase) {
+                displayHeaders = ["작성일자", "상호", "합계금액", "공급가액", "세액", "품목비고"];
+            } else if (isLedger) {
+                displayHeaders = ["날짜", "적요", "입금액(원)", "출금액(원)", "잔액(원)", "계산서발행일", "계좌", "비고"];
+            } else if (isBank) {
+                displayHeaders = ["계좌명", "잔액", "비고"];
+            } else if (isWorkerCompany) {
+                displayHeaders = ["근무일자", "업체명", "현장명", "인원수", "단가", "노무비합계", "식대", "지출합계", "출금계좌", "비고"];
+            } else if (isWorkerDate) {
+                displayHeaders = ["날짜", "요일", "성명", "주민번호", "업체명", "현장명", "단가", "식대", "합계", "계좌번호", "은행", "예금주"];
+            } else if (isWorkerCash) {
+                displayHeaders = ["날짜", "구분", "업체/성명", "내용", "입금액", "출금액", "잔액", "계좌", "비고"];
+            }
+            
+            let processedData = data.filter(row => {
+                if (!row || row.length === 0) return false;
+                const actualData = row.slice(0, maxCols);
+                return actualData.some(cell => cell !== null && cell !== undefined && cell.toString().trim() !== '');
+            });
+            
+            processedData = processedData.filter(row => {
+                const rowStr = JSON.stringify(row);
+                const ignoreKeywords = ["작성일자", "상호", "번호", "합계금액", "근무일자", "주민번호", "예금주", "입금액"];
+                return !ignoreKeywords.some(key => rowStr.includes(key));
+            });
+
+            const parseDateObj = (val) => {
+                if (!val) return null;
+                if (typeof val === 'number' && val > 40000) return new Date((val - 25569) * 86400 * 1000);
+                let str = val.toString();
+                if (str.includes('월')) str = '2026-' + str.replace('월', '-').replace('일', '').replace(/\s/g, '');
+                else if (str.match(/^\d{2}\.\d{2}$/)) str = '2026-' + str.replace('.', '-');
+                const d = new Date(str.replace(/\./g, '-'));
+                return isNaN(d.getTime()) ? null : d;
+            };
+
+            if (isSales || isPurchase || isLedger || isAnyWorker) {
+                processedData = processedData.map(row => {
+                    let cleaned = row.slice(0, maxCols);
+                    while (cleaned.length < maxCols) cleaned.push('');
+                    return cleaned;
+                });
+                processedData.sort((a, b) => {
+                    const dateA = parseDateObj(a[0]);
+                    const dateB = parseDateObj(b[0]);
+                    if (!dateA && !dateB) return 0;
+                    if (!dateA) return 1;
+                    if (!dateB) return -1;
+                    return dateB.getTime() - dateA.getTime();
+                });
+            }
+            
+            const displayData = processedData; 
+            const colWidth = 100 / maxCols;
+            let html = '<table style="margin-top:0;"><thead><tr>';
+            displayHeaders.forEach(h => html += `<th style="width:${colWidth}%">${h || ''}</th>`);
+            html += '</tr></thead><tbody>';
+            
+            let lastMonth = '';
+            let lastWeek = '';
+            let monthIndex = 0;
+            let monthTotals = { total: 0, supply: 0, tax: 0, workers: 0, cost: 0 };
+            let weekTotals = { total: 0, supply: 0, tax: 0, workers: 0, cost: 0 };
+            
+            function getWeekNumber(d) {
+                d = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+                d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
+                var yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+                var weekNo = Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+                return d.getUTCFullYear() + "-W" + weekNo;
+            }
+
+            function addSummaryRow(label, totals, className = 'total-row') {
+                if (isWorkerCompany) {
+                    return `<tr class="${className}">
+                        <td colspan="3" class="total-label">${label}</td>
+                        <td class="num-cell">${totals.workers.toLocaleString()}명</td>
+                        <td></td>
+                        <td class="num-cell">${totals.cost.toLocaleString()}원</td>
+                        <td></td>
+                        <td class="num-cell">${totals.total.toLocaleString()}원</td>
+                        <td colspan="2"></td>
+                    </tr>`;
+                } else if (isWorkerDate) {
+                    return `<tr class="${className}">
+                        <td colspan="8" class="total-label">${label} (합계)</td>
+                        <td class="num-cell">${totals.total.toLocaleString()}원</td>
+                        <td colspan="3"></td>
+                    </tr>`;
+                } else if (isWorkerCash) {
+                    return `<tr class="${className}">
+                        <td colspan="4" class="total-label">${label}</td>
+                        <td class="num-cell">${totals.supply.toLocaleString()}원</td>
+                        <td class="num-cell">${totals.tax.toLocaleString()}원</td>
+                        <td colspan="3"></td>
+                    </tr>`;
+                }
+                return `<tr class="${className}">
+                    <td colspan="2" class="total-label">${label}</td>
+                    <td class="num-cell">${totals.total.toLocaleString()}</td>
+                    <td class="num-cell">${totals.supply.toLocaleString()}</td>
+                    <td class="num-cell">${totals.tax.toLocaleString()}</td>
+                    <td colspan="${maxCols - 5}"></td>
+                </tr>`;
+            }
+
+            displayData.forEach((row, rIdx) => {
+                const dateObj = parseDateObj(row[0]);
+                let currentMonth = '';
+                let currentWeek = '';
+                if (dateObj) {
+                    currentMonth = dateObj.getFullYear() + '년 ' + (dateObj.getMonth() + 1) + '월';
+                    currentWeek = getWeekNumber(dateObj);
+                }
+                
+                if ((isLedger || isAnyWorker) && lastWeek !== '' && currentWeek !== lastWeek) {
+                    html += addSummaryRow(`📅 ${lastWeek} 주간 소계`, weekTotals, 'week-total-row');
+                    weekTotals = { total: 0, supply: 0, tax: 0, workers: 0, cost: 0 };
+                }
+                if (lastMonth !== '' && currentMonth !== lastMonth) {
+                    html += addSummaryRow(`Σ ${lastMonth} 월간 소계`, monthTotals, 'total-row');
+                    html += `<tr class="month-group-divider"><td colspan="${maxCols}" style="padding:0; height:0;"></td></tr>`;
+                    monthTotals = { total: 0, supply: 0, tax: 0, workers: 0, cost: 0 };
+                    monthIndex = (monthIndex + 1) % 4;
+                }
+                
+                const cleanNum = (val) => parseInt((val || 0).toString().replace(/[^0-9-]/g, '')) || 0;
+                
+                if (isWorkerCompany) {
+                    const workers = cleanNum(row[3]);
+                    const cost = cleanNum(row[5]);
+                    const total = cleanNum(row[7]);
+                    monthTotals.workers += workers; monthTotals.cost += cost; monthTotals.total += total;
+                    weekTotals.workers += workers; weekTotals.cost += cost; weekTotals.total += total;
+                } else if (isWorkerDate) {
+                    const total = cleanNum(row[8]);
+                    monthTotals.total += total; weekTotals.total += total;
+                } else if (isWorkerCash) {
+                    const dep = cleanNum(row[4]);
+                    const wit = cleanNum(row[5]);
+                    monthTotals.supply += dep; monthTotals.tax += wit;
+                    weekTotals.supply += dep; weekTotals.tax += wit;
+                } else {
+                    const rowTotal = cleanNum(row[2]);
+                    const rowSupply = cleanNum(row[3]);
+                    const rowTax = cleanNum(row[4]);
+                    monthTotals.total += rowTotal; monthTotals.supply += rowSupply; monthTotals.tax += rowTax;
+                    weekTotals.total += rowTotal; weekTotals.supply += rowSupply; weekTotals.tax += rowTax;
+                }
+
+                let rowClass = `month-bg-${monthIndex}`;
+                lastMonth = currentMonth;
+                lastWeek = currentWeek;
+                
+                html += `<tr class="${rowClass}">`;
+                for (let i = 0; i < maxCols; i++) {
+                    let cell = row[i] !== undefined ? row[i] : '';
+                    if (i === 0 && typeof cell === 'number' && cell > 40000) {
+                        const date = new Date((cell - 25569) * 86400 * 1000);
+                        cell = date.toISOString().split('T')[0];
+                    }
+                    
+                    let isNum = false;
+                    if (isWorkerCompany) isNum = (i === 3 || i === 4 || i === 5 || i === 6 || i === 7);
+                    else if (isWorkerDate) isNum = (i === 6 || i === 7 || i === 8);
+                    else if (isWorkerCash) isNum = (i === 4 || i === 5 || i === 6);
+                    else isNum = (i >= 2 && i <= 4);
+                    
+                    const cellContent = isNum && typeof cell === 'number' ? cell.toLocaleString() : cell;
+                    
+                    // 업체명 클릭 가능하게 설정 (업체별 또는 외국인 양식에서 업체명 열은 1번 인덱스)
+                    if (isWorkerCompany && i === 1 && cell !== '') {
+                        html += `<td class="company-link" onclick="showCompanyDetail('${cell}')">${cell}</td>`;
+                    } else {
+                        html += `<td contenteditable="true" class="${isNum ? 'num-cell' : ''}" data-row="${rIdx}" data-col="${i}">${cellContent}</td>`;
+                    }
+                }
+                html += '</tr>';
+            });
+            
+            if ((isLedger || isAnyWorker) && lastWeek !== '') html += addSummaryRow(`📅 ${lastWeek} 주간 소계`, weekTotals, 'week-total-row');
+            if (lastMonth !== '') html += addSummaryRow(`Σ ${lastMonth} 월간 소계`, monthTotals, 'total-row');
+            
+            html += '</tbody></table>';
+            container.innerHTML = html;
+            document.getElementById('status-msg').textContent = `${displayData.length}행 x ${maxCols}열 표시됨`;
+        }
+
+        // 업체 상세 정보 표시 함수
+        function showCompanyDetail(companyName) {
+            const modal = document.getElementById('company-detail-modal');
+            const nameEl = document.getElementById('modal-company-name');
+            const tableContainer = document.getElementById('modal-table-container');
+            const paidEl = document.getElementById('modal-total-paid');
+            const billedEl = document.getElementById('modal-total-billed');
+
+            nameEl.textContent = `👷 ${companyName} 상세 내역 (전체 시트 검색)`;
+            tableContainer.innerHTML = '<p style="text-align:center; padding:20px;">검색 중...</p>';
+            
+            let matchedRows = [];
+            let totalPaid = 0;
+            let totalBilled = 0;
+
+            // 모든 시트 검색
+            for (let sheetName in allSheetsData) {
+                const data = allSheetsData[sheetName];
+                if (!data || data.length === 0) continue;
+
+                // 헤더 찾기
+                let headers = data[0];
+                let companyCol = -1;
+                let paidCol = -1;
+                let billedCol = -1;
+
+                headers.forEach((h, idx) => {
+                    if (h) {
+                        const hStr = h.toString();
+                        if (hStr.includes('업체명') || hStr.includes('상호')) companyCol = idx;
+                        if (hStr.includes('지급액') || hStr.includes('노무비')) paidCol = idx;
+                        if (hStr.includes('청구액') || hStr.includes('합계')) billedCol = idx;
+                    }
+                });
+
+                if (companyCol === -1) continue;
+
+                data.slice(1).forEach(row => {
+                    if (row[companyCol] && row[companyCol].toString().trim() === companyName.trim()) {
+                        matchedRows.push({
+                            sheet: sheetName,
+                            row: row
+                        });
+                        
+                        if (paidCol !== -1) totalPaid += parseInt((row[paidCol] || 0).toString().replace(/[^0-9]/g, '')) || 0;
+                        if (billedCol !== -1) totalBilled += parseInt((row[billedCol] || 0).toString().replace(/[^0-9]/g, '')) || 0;
+                    }
+                });
+            }
+
+            if (matchedRows.length === 0) {
+                tableContainer.innerHTML = '<p style="text-align:center; padding:20px;">일치하는 내역이 없습니다.</p>';
+            } else {
+                let html = '<table style="width:100%; border-collapse:collapse; font-size:0.8rem;">';
+                html += '<thead><tr style="background:#f1f1f1;"><th>시트명</th><th>내용 (전체행)</th></tr></thead><tbody>';
+                matchedRows.forEach(item => {
+                    html += `<tr><td style="width:150px; font-weight:bold; background:#fafafa;">${item.sheet}</td><td>${item.row.join(' | ')}</td></tr>`;
+                });
+                html += '</tbody></table>';
+                tableContainer.innerHTML = html;
+            }
+
+            paidEl.textContent = totalPaid.toLocaleString() + '원';
+            billedEl.textContent = totalBilled.toLocaleString() + '원';
+            modal.style.display = 'block';
+        }
+
+        function closeModal() {
+            document.getElementById('company-detail-modal').style.display = 'none';
+        }
+
+        // 모달 바깥 클릭 시 닫기
+        window.onclick = function(event) {
+            const modal = document.getElementById('company-detail-modal');
+            if (event.target == modal) {
+                modal.style.display = "none";
+            }
+        }
+
+        document.getElementById('excel-upload').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const workbook = XLSX.read(new Uint8Array(e.target.result), { type: 'array', dense: true });
+                    
+                    // 업로드 시에도 모든 시트 데이터 저장
+                    allSheetsData = {};
+                    workbook.SheetNames.forEach(sheetName => {
+                        if (sheetName !== "2026년 04월채움") {
+                            allSheetsData[sheetName] = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1 });
+                        }
+                    });
+
+                    const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+                    const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+                    if (jsonData.length > 0) {
+                        renderEditor(jsonData[0], jsonData.slice(1));
+                        alert('불러오기 완료! [변경사항 저장]을 눌러야 유지됩니다.');
+                    }
+                } catch (err) {
+                    alert('파일을 읽는 중 오류가 발생했습니다.');
+                }
+            };
+            reader.readAsArrayBuffer(file);
+        });
+
+        // 구글 드라이브에서 파일 가져오기
+        async function importFromGoogleDrive() {
+            const fileId = prompt("구글 드라이브 파일 ID를 입력하세요.\n(예: 1D8EvaXfAsyIt_VJ0-MrTzOJlcXdaG2oW\n또는 파일 주소창의 ID 부분만 복사해서 입력)");
+            if (!fileId) return;
+
+            const statusMsg = document.getElementById('status-msg');
+            statusMsg.textContent = "구글 드라이브에서 데이터를 가져오는 중...";
+            
+            try {
+                // 구글 드라이브 엑셀 내보내기 URL
+                const exportUrl = `https://docs.google.com/spreadsheets/d/${fileId}/export?format=xlsx`;
+                
+                const response = await fetch(exportUrl);
+                if (!response.ok) throw new Error('파일을 가져오지 못했습니다. 파일이 공개(링크가 있는 모든 사용자) 상태인지 확인하세요.');
+                
+                const arrayBuffer = await response.arrayBuffer();
+                const workbook = XLSX.read(new Uint8Array(arrayBuffer), { type: 'array', dense: true });
+                
+                // 모든 시트 데이터 저장
+                allSheetsData = {};
+                workbook.SheetNames.forEach(sheetName => {
+                    if (sheetName !== "2026년 04월채움") {
+                        allSheetsData[sheetName] = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1 });
+                    }
+                });
+
+                const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+                const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+                
+                if (jsonData.length > 0) {
+                    renderEditor(jsonData[0], jsonData.slice(1));
+                    alert('구글 드라이브 데이터 로드 완료! [변경사항 저장]을 눌러야 유지됩니다.');
+                }
+            } catch (error) {
+                alert('오류: ' + error.message);
+                statusMsg.textContent = "데이터 로드 실패";
+            }
+        }
+
+        function saveData() {
+            const headers = Array.from(document.querySelectorAll('th')).map(th => th.textContent);
+            const data = Array.from(document.querySelectorAll('tbody tr'))
+                .filter(row => !row.classList.contains('total-row') && !row.classList.contains('month-group-divider'))
+                .map(row => Array.from(row.querySelectorAll('td')).map(td => td.textContent));
+            
+            localStorage.setItem('data_' + type, JSON.stringify({ headers, data }));
+            alert('데이터가 영구 저장되었습니다.');
+            location.reload();
+        }
+    </script>
+</body>
+</html>

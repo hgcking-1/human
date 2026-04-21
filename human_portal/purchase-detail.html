@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>HUMAN - 월별 매입 상세 내역</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        body { background: #f0f2f5; padding: 2rem; font-family: 'Pretendard', sans-serif; }
+        .detail-container { max-width: 900px; margin: 0 auto; background: white; padding: 2rem; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
+        h2 { color: #2c3e50; margin-bottom: 1.5rem; border-bottom: 2px solid var(--accent-color); padding-bottom: 0.5rem; }
+        table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+        th { background: #34495e; color: white; padding: 12px; text-align: left; font-size: 0.9rem; }
+        td { padding: 12px; border-bottom: 1px solid #eee; font-size: 0.85rem; color: #333; }
+        tr:hover { background: #f8f9fa; }
+        .num { text-align: right; font-weight: bold; }
+        .date { color: #7f8c8d; }
+        .summary-box { display: flex; gap: 20px; margin-bottom: 20px; background: #f8f9fa; padding: 15px; border-radius: 8px; }
+        .summary-item { flex: 1; }
+        .summary-label { font-size: 0.75rem; color: #888; }
+        .summary-val { font-size: 1.1rem; font-weight: bold; color: #2c3e50; }
+    </style>
+</head>
+<body>
+    <div class="detail-container">
+        <h2 id="detail-title">월별 매입 상세 내역</h2>
+        
+        <div class="summary-box">
+            <div class="summary-item">
+                <div class="summary-label">조회 월</div>
+                <div id="summary-month" class="summary-val">-</div>
+            </div>
+            <div class="summary-item">
+                <div class="summary-label">총 합계금액</div>
+                <div id="summary-total" class="summary-val" style="color:var(--danger-color)">0원</div>
+            </div>
+            <div class="summary-item">
+                <div class="summary-label">데이터 건수</div>
+                <div id="summary-count" class="summary-val">0건</div>
+            </div>
+        </div>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>작성일자</th>
+                    <th>상호 (업체명)</th>
+                    <th style="text-align:right;">합계금액</th>
+                    <th>품목비고</th>
+                </tr>
+            </thead>
+            <tbody id="detail-body">
+                <tr><td colspan="4" style="text-align:center; padding:3rem; color:#999;">데이터를 불러오는 중...</td></tr>
+            </tbody>
+        </table>
+        
+        <div style="margin-top: 2rem; text-align: center;">
+            <button class="btn-sm" onclick="window.close()">창 닫기</button>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const urlParams = new URLSearchParams(window.location.search);
+            const targetMonth = urlParams.get('month'); // YYYY.MM 형식
+            const targetCategory = urlParams.get('category'); // 항목명
+            
+            if (!targetMonth) {
+                document.getElementById('detail-body').innerHTML = '<tr><td colspan="4" style="text-align:center;">잘못된 접근입니다.</td></tr>';
+                return;
+            }
+
+            const titleText = targetCategory 
+                ? `${targetMonth} [${targetCategory}] 매입 상세 내역`
+                : `${targetMonth} 매입 상세 내역`;
+            
+            document.getElementById('detail-title').textContent = titleText;
+            document.getElementById('summary-month').textContent = targetMonth + (targetCategory ? ` (${targetCategory})` : '');
+
+            const saved = JSON.parse(localStorage.getItem('data_purchase'));
+            if (!saved || !saved.data) return;
+
+            let totalSum = 0;
+            let count = 0;
+            
+            const filtered = saved.data.filter(row => {
+                let dateVal = row[0];
+                let monthStr = '';
+                if (typeof dateVal === 'number' && dateVal > 40000) {
+                    const d = new Date((dateVal - 25569) * 86400 * 1000);
+                    monthStr = d.getFullYear() + '.' + (d.getMonth() + 1).toString().padStart(2, '0');
+                } else if (dateVal) {
+                    monthStr = dateVal.toString().substring(0, 7).replace(/-/g, '.');
+                }
+
+                const matchesMonth = monthStr === targetMonth;
+                const matchesCategory = !targetCategory || (row[5] || '기타').toString().trim() === targetCategory;
+                
+                return matchesMonth && matchesCategory;
+            });
+
+            const html = filtered.map(row => {
+                const amount = parseInt((row[2] || 0).toString().replace(/[^0-9]/g, '')) || 0;
+                totalSum += amount;
+                count++;
+                
+                // 날짜 포맷팅
+                let displayDate = row[0];
+                if (typeof displayDate === 'number' && displayDate > 40000) {
+                    displayDate = new Date((displayDate - 25569) * 86400 * 1000).toISOString().split('T')[0];
+                }
+
+                return `
+                    <tr>
+                        <td class="date">${displayDate || ''}</td>
+                        <td style="font-weight:500;">${row[1] || ''}</td>
+                        <td class="num">${amount.toLocaleString()}원</td>
+                        <td style="color:#666; font-size:0.8rem;">${row[5] || ''}</td>
+                    </tr>
+                `;
+            }).join('');
+
+            document.getElementById('detail-body').innerHTML = html || '<tr><td colspan="4" style="text-align:center; padding:2rem;">해당 조건의 내역이 없습니다.</td></tr>';
+            document.getElementById('summary-total').textContent = totalSum.toLocaleString() + '원';
+            document.getElementById('summary-count').textContent = count + '건';
+        });
+    </script>
+</body>
+</html>

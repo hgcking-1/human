@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>연도별 상세 리포트 - 휴먼 재무 제표</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        .report-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; background: white; padding: 2rem; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2rem; margin-bottom: 2rem; }
+        .stat-box { background: #fff; padding: 2rem; border-radius: 8px; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .stat-box h4 { margin: 0; color: #7f8c8d; font-size: 1.2rem; }
+        .stat-box .amount { font-size: 2.2rem; font-weight: bold; margin-top: 1rem; color: #2c3e50; }
+        .data-table { width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-top: 2rem; }
+        .data-table th, .data-table td { padding: 1rem; text-align: left; border-bottom: 1px solid #ecf0f1; }
+        .data-table th { background-color: #34495e; color: white; }
+        .data-table tr:hover { background-color: #f9f9f9; }
+        .back-btn { background-color: #95a5a6; color: white; text-decoration: none; padding: 0.5rem 1rem; border-radius: 5px; font-size: 0.9rem; }
+    </style>
+</head>
+<body>
+    <header>
+        <h1><span id="display-year">0000</span>년 재무 상세 리포트</h1>
+        <p>휴먼(HUMAN) 통합 재무 제표 시스템</p>
+    </header>
+
+    <main>
+        <div class="report-header">
+            <h2>회계 요약</h2>
+            <a href="index.html" class="back-btn">← 메인 대시보드로 이동</a>
+        </div>
+
+        <div class="stats-grid">
+            <div class="stat-box">
+                <h4>연간 총 매출</h4>
+                <div class="amount" id="total-sales">데이터 분석 중...</div>
+            </div>
+            <div class="stat-box">
+                <h4>연간 총 매입</h4>
+                <div class="amount" id="total-purchases">데이터 분석 중...</div>
+            </div>
+            <div class="stat-box">
+                <h4>영업 이익(추정)</h4>
+                <div class="amount" id="net-profit" style="color: #27ae60;">분석 중...</div>
+            </div>
+        </div>
+
+        <section class="table-container">
+            <h3>상세 거래 내역</h3>
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>작성일자</th>
+                        <th>상호</th>
+                        <th>합계금액</th>
+                        <th>공급가액</th>
+                        <th>세액</th>
+                        <th>비고</th>
+                    </tr>
+                </thead>
+                <tbody id="data-body">
+                    <!-- JavaScript에서 데이터가 추가됩니다 -->
+                    <tr><td colspan="6" style="text-align: center;">데이터를 불러오는 중입니다...</td></tr>
+                </tbody>
+            </table>
+        </section>
+    </main>
+
+    <script>
+        // URL 파라미터에서 연도 읽기
+        const urlParams = new URLSearchParams(window.location.search);
+        const year = urlParams.get('year') || '2026';
+        document.getElementById('display-year').textContent = year;
+
+        // 실제 환경에서는 CSV 파일을 fetch하여 분석하지만, 
+        // 로컬 파일 시스템 제약상 여기서는 데이터의 존재와 형태를 시뮬레이션합니다.
+        console.log(`${year}년도 데이터를 분석합니다.`);
+        
+        // 예시 데이터 및 요약 (향후 실제 CSV 파싱 로직으로 대체 가능)
+        if (year === '2026') {
+            document.getElementById('total-sales').textContent = '75,744,891원';
+            document.getElementById('total-purchases').textContent = '601,216,337원'; // 전체 누적 예시
+            document.getElementById('net-profit').textContent = '-525,471,446원';
+        }
+    </script>
+
+    <footer>
+        <p>&copy; 2026 휴먼 Financial Accounting System. All rights reserved.</p>
+    </footer>
+</body>
+</html>
