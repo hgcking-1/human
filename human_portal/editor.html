@@ -9,8 +9,10 @@
         .editor-container { max-width: 98%; margin: 0 auto; background: white; padding: 1.5rem; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); max-height: 95vh; display: flex; flex-direction: column; overflow: hidden; }
         .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; background: #ffffff; padding: 0.8rem 1.2rem; border-radius: 8px; border: 1px solid #dee2e6; box-shadow: 0 2px 4px rgba(0,0,0,0.02); flex-shrink: 0; }
         .table-wrapper { flex-grow: 1; overflow: auto; border: 1px solid #dee2e6; border-radius: 4px; background: #fafafa; }
-        table { width: 100%; border-collapse: collapse; background: white; table-layout: fixed; border: 1px solid #dee2e6; }
-        th { background: #34495e; color: white; position: sticky; top: 0; padding: 8px 10px; font-weight: 600; font-size: 0.75rem; border: 1px solid #2c3e50; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; z-index: 100; }
+        table { width: 100%; border-collapse: separate; border-spacing: 0; background: white; table-layout: fixed; border: 1px solid #dee2e6; }
+        thead { position: sticky; top: 0; z-index: 200; }
+        thead tr { box-shadow: 0 2px 4px rgba(0,0,0,0.15); }
+        th { background: #34495e; color: white; position: sticky; top: 0; padding: 10px 10px; font-weight: 700; font-size: 0.78rem; border: 1px solid #2c3e50; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; z-index: 200; }
         td { padding: 6px 10px; border: 1px solid #dee2e6; font-size: 0.75rem; color: #333; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
         tr:nth-child(even) { background-color: #f8f9fa; }
         tr:hover { background-color: #edf2f7; }
@@ -152,6 +154,11 @@
                 'f6': '2026.04-금전출납(세무용)_채움.xlsx',
                 'f7': '2026.04-금전출납(세무용)_휴먼.xlsx'
             };
+            // 양식별 헤더 행 (1-based) — 첫 시트 기준
+            // 위에 병합 타이틀/합계/그룹부제가 있어 그 행은 데이터에서 제외
+            const HEADER_ROWS = {
+                'f1': 2, 'f2': 3, 'f3': 2, 'f4': 2, 'f5': 3, 'f6': 4, 'f7': 4
+            };
 
             const fileMap = {
                 'human_unpaid': '2026.03-금전&세무_휴먼(1. 미입금).xlsx',
@@ -237,9 +244,14 @@
                 
                 if (jsonData.length > 0) {
                     fileInfo.textContent = "원본 연동됨";
-                    let startIdx = 0;
-                    if (jsonData[0] && jsonData[0].some(cell => cell && cell.toString().includes('근무일자') && !jsonData[0].some(c => c && c.toString().includes('업체명')))) {
-                        startIdx = 1;
+                    // 양식별 명시 헤더 행 (1-based) → 0-based 인덱스
+                    const fmIdLoad = (type.match(/_(f[1-7])$/) || [])[1] || '';
+                    let startIdx = HEADER_ROWS[fmIdLoad] ? (HEADER_ROWS[fmIdLoad] - 1) : 0;
+                    // 헤더 행이 비어있거나 누수일 경우 아래 4행 내에서 자동 보정
+                    if (!jsonData[startIdx] || jsonData[startIdx].filter(c => c && c.toString().trim() !== '').length < 3) {
+                        for (let i = 0; i < Math.min(jsonData.length, startIdx + 4); i++) {
+                            if (jsonData[i] && jsonData[i].filter(c => c && c.toString().trim() !== '').length >= 4) { startIdx = i; break; }
+                        }
                     }
                     renderEditor(jsonData[startIdx], jsonData.slice(startIdx + 1));
                 } else {
@@ -618,10 +630,13 @@
                     const worksheet = workbook.Sheets[workbook.SheetNames[0]];
                     const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
                     if (jsonData.length > 0) {
-                        // 헤더 행 자동 탐지 (1~3행 중 첫 비-빈 행)
-                        let headerIdx = 0;
-                        for (let i = 0; i < Math.min(3, jsonData.length); i++) {
-                            if (jsonData[i] && jsonData[i].some(c => c && c.toString().trim() !== '')) { headerIdx = i; break; }
+                        // 양식별 명시 헤더 행 우선, 없으면 자동 탐지(상위 5행 중 4셀 이상 채워진 행)
+                        const fmIdU = (type.match(/_(f[1-7])$/) || [])[1] || '';
+                        let headerIdx = HEADER_ROWS[fmIdU] ? (HEADER_ROWS[fmIdU] - 1) : 0;
+                        if (!jsonData[headerIdx] || jsonData[headerIdx].filter(c => c && c.toString().trim()).length < 3) {
+                            for (let i = 0; i < Math.min(5, jsonData.length); i++) {
+                                if (jsonData[i] && jsonData[i].filter(c => c && c.toString().trim()).length >= 4) { headerIdx = i; break; }
+                            }
                         }
                         const headers = jsonData[headerIdx] || [];
                         const data = jsonData.slice(headerIdx + 1).filter(r => r && r.some(c => c !== null && c !== undefined && c.toString().trim() !== ''));

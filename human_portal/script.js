@@ -1,14 +1,15 @@
 // 7개 일용직 양식 정의 — 회사별 분리 노출
 // 휴먼 = KM 계열 청구·지급 + 금전출납(세무용) 휴먼
 // 채움 = 채움 청구·외국인·지급 + 금전출납(세무용) 채움
+// headerRow = 첫 시트에서 헤더가 있는 행(1-based). 위 행은 병합 타이틀/합계/그룹부제이므로 제외.
 const FORMS = [
-    { id: 'f1', icon: '📊', title: '업체별 (청구용·KM)', file: '2026.04 업체별(청구용)_KM 휴먼.xlsx',     payCol: 10, co: 'human'  },
-    { id: 'f2', icon: '📅', title: '일자별 (지급용·KM)', file: '2026.04 일자별(지급용)_KM 휴먼.xlsx',     payCol: 10, co: 'human'  },
-    { id: 'f7', icon: '💵', title: '금전출납 (세무용)',  file: '2026.04-금전출납(세무용)_휴먼.xlsx',       payCol: 2,  co: 'human'  },
-    { id: 'f3', icon: '🏢', title: '업체별 (청구용)',    file: '2026.04-업체별(청구용)_채움.xlsx',         payCol: 10, co: 'chaeum' },
-    { id: 'f4', icon: '🌐', title: '업체별 외국인',      file: '2026.04-업체별(청구용)_외국인 채움.xlsx',  payCol: 10, co: 'chaeum' },
-    { id: 'f5', icon: '📆', title: '일자별 (지급용)',    file: '2026.04-일자별(지급용)_채움.xlsx',         payCol: 10, co: 'chaeum' },
-    { id: 'f6', icon: '💰', title: '금전출납 (세무용)',  file: '2026.04-금전출납(세무용)_채움.xlsx',       payCol: 2,  co: 'chaeum' }
+    { id: 'f1', icon: '📊', title: '업체별 (청구용·KM)', file: '2026.04 업체별(청구용)_KM 휴먼.xlsx',     payCol: 10, co: 'human',  headerRow: 2 },
+    { id: 'f2', icon: '📅', title: '일자별 (지급용·KM)', file: '2026.04 일자별(지급용)_KM 휴먼.xlsx',     payCol: 10, co: 'human',  headerRow: 3 },
+    { id: 'f7', icon: '💵', title: '금전출납 (세무용)',  file: '2026.04-금전출납(세무용)_휴먼.xlsx',       payCol: 2,  co: 'human',  headerRow: 4 },
+    { id: 'f3', icon: '🏢', title: '업체별 (청구용)',    file: '2026.04-업체별(청구용)_채움.xlsx',         payCol: 10, co: 'chaeum', headerRow: 2 },
+    { id: 'f4', icon: '🌐', title: '업체별 외국인',      file: '2026.04-업체별(청구용)_외국인 채움.xlsx',  payCol: 10, co: 'chaeum', headerRow: 2 },
+    { id: 'f5', icon: '📆', title: '일자별 (지급용)',    file: '2026.04-일자별(지급용)_채움.xlsx',         payCol: 10, co: 'chaeum', headerRow: 3 },
+    { id: 'f6', icon: '💰', title: '금전출납 (세무용)',  file: '2026.04-금전출납(세무용)_채움.xlsx',       payCol: 2,  co: 'chaeum', headerRow: 4 }
 ];
 
 document.addEventListener('DOMContentLoaded', function() {
@@ -83,10 +84,15 @@ function quickUpload(event, type) {
             });
             const ws = wb.Sheets[wb.SheetNames[0]];
             const json = XLSX.utils.sheet_to_json(ws, { header: 1 });
-            // 1행이 머리글이라 가정. 빈 행 제거.
-            let headerIdx = 0;
-            for (let i = 0; i < Math.min(3, json.length); i++) {
-                if (json[i] && json[i].some(c => c && c.toString().trim() !== '')) { headerIdx = i; break; }
+            // 양식별 명시 헤더 행 우선
+            const fmIdQ = (type.match(/_(f[1-7])$/) || [])[1] || '';
+            const formMeta = FORMS.find(x => x.id === fmIdQ);
+            let headerIdx = formMeta && formMeta.headerRow ? formMeta.headerRow - 1 : 0;
+            // fallback: 명시 헤더 행이 비어있으면 상위 5행 중 4셀 이상 채워진 첫 행
+            if (!json[headerIdx] || json[headerIdx].filter(c => c && c.toString().trim()).length < 3) {
+                for (let i = 0; i < Math.min(5, json.length); i++) {
+                    if (json[i] && json[i].filter(c => c && c.toString().trim()).length >= 4) { headerIdx = i; break; }
+                }
             }
             const headers = json[headerIdx] || [];
             const data = json.slice(headerIdx + 1).filter(r => r && r.some(c => c !== null && c !== undefined && c.toString().trim() !== ''));
