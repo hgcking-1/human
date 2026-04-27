@@ -641,6 +641,14 @@
                     headerOverrides[i] !== undefined ? headerOverrides[i] : h
                 );
             }
+
+            // 헤더 라벨 기반 날짜 컬럼 자동 인식 (엑셀 시리얼 숫자 → YYYY-MM-DD 변환)
+            const DATE_HEADER_KEYWORDS = ['날짜', '작성일자', '입금일', '출금일', '지급일', '계산서발행일', '일자'];
+            const dateCols = new Set();
+            displayHeaders.forEach((h, i) => {
+                const txt = (h || '').toString();
+                if (DATE_HEADER_KEYWORDS.some(k => txt.includes(k))) dateCols.add(i);
+            });
             
             // 새 양식(f1~f7)은 엑셀 원본 그대로: 빈 행/빈 셀/순서 모두 보존 (isRawForm은 위에서 정의됨)
             const parseDateObj = (val) => {
@@ -876,7 +884,8 @@
                         formulaText = cell.formula || '';
                         cell = (cell.value !== undefined && cell.value !== null) ? cell.value : '';
                     }
-                    if (i === 0 && typeof cell === 'number' && cell > 40000) {
+                    // 첫 컬럼이거나 날짜 헤더 컬럼이면 엑셀 시리얼 숫자를 YYYY-MM-DD로 변환
+                    if ((i === 0 || dateCols.has(i)) && typeof cell === 'number' && cell > 40000) {
                         const date = new Date((cell - 25569) * 86400 * 1000);
                         cell = date.toISOString().split('T')[0];
                     }
