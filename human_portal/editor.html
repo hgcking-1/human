@@ -189,19 +189,42 @@
             return (auto && allSheetsData[auto]) ? auto : null;
         }
 
+        // 헤더 키워드 풀 — 이 중 2개 이상이 같은 행에 있으면 그 행이 헤더로 잡힘
+        const HEADER_KEYWORDS = new Set([
+            '구분','입금액','부가세','지출액','순이익',
+            '날짜','업체','업체명','현장','현장명','업무','근무시간',
+            '이름','성명','연락처','전화번호','주민번호','은행','계좌','계좌번호','예금주',
+            '지급액','청구액','지급','청구','지급일','차감','차액','이익금','결재','비고',
+            '인원','인원수','단가','노무비','노무비합계','식대','지출합계','출금계좌',
+            '작성일자','상호','합계금액','공급가액','세액','품목비고',
+            '매출합계','매출공급가액','매출세액','매입합계','매입공급가액','매입세액',
+            '입금일','출금일','통장','계산서발행일','계좌명','잔액','적요',
+            '청구액(당월)','전월이월','미청구','미입금','한달','주차',
+            'No.','no.','no'
+        ]);
+
+        function cellRawText(c) {
+            if (c === null || c === undefined) return '';
+            const v = (c && typeof c === 'object' && c.isFormula) ? c.value : c;
+            return v === null || v === undefined ? '' : v.toString().trim();
+        }
+
         function detectHeaderRow(json, sheetName) {
-            // 시트별 명시 매핑 우선 (1-based → 0-based)
+            // 1. 시트별 명시 매핑 우선 (1-based → 0-based)
             const fmId = (type.match(/_(f[1-7])$/) || [])[1] || '';
             const explicit = (SHEET_HEADER_ROW[fmId] || {})[sheetName];
             if (explicit && explicit > 0) return explicit - 1;
-            // 자동: 4셀 이상 채워진 첫 행
-            const cellNotEmpty = c => {
-                if (c === null || c === undefined) return false;
-                const v = (c && typeof c === 'object' && c.isFormula) ? c.value : c;
-                return v !== null && v !== undefined && v.toString().trim() !== '';
-            };
+
+            // 2. 키워드 매칭: 헤더 키워드 2개 이상 등장하는 첫 행
+            for (let i = 0; i < Math.min(10, json.length); i++) {
+                if (!json[i]) continue;
+                const matches = json[i].filter(c => HEADER_KEYWORDS.has(cellRawText(c))).length;
+                if (matches >= 2) return i;
+            }
+
+            // 3. fallback: 4셀 이상 채워진 첫 행
             for (let i = 0; i < Math.min(8, json.length); i++) {
-                if (json[i] && json[i].filter(cellNotEmpty).length >= 4) {
+                if (json[i] && json[i].filter(c => cellRawText(c) !== '').length >= 4) {
                     return i;
                 }
             }
