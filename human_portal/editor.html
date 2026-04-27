@@ -810,19 +810,25 @@
                     }
                     
                     let isNum = false;
-                    if (isBizForm) isNum = (i === 10 || i === 11 || i === 12);
-                    else if (isDailyForm) isNum = (i === 0 || i === 10 || i === 11);
-                    else if (isCashForm) isNum = (i >= 2 && i <= 7);
-                    else if (isWorkerCompany) isNum = (i === 3 || i === 4 || i === 5 || i === 6 || i === 7);
-                    else if (isWorkerDate) isNum = (i === 6 || i === 7 || i === 8);
-                    else if (isWorkerCash) isNum = (i === 4 || i === 5 || i === 6);
-                    else isNum = (i >= 2 && i <= 4);
+                    if (isRawForm) {
+                        // raw 모드: 셀이 숫자 타입이면 모두 금액으로 취급 (반올림 + 콤마)
+                        isNum = (typeof cell === 'number');
+                    } else if (isWorkerCompany) {
+                        isNum = (i === 3 || i === 4 || i === 5 || i === 6 || i === 7);
+                    } else if (isWorkerDate) {
+                        isNum = (i === 6 || i === 7 || i === 8);
+                    } else if (isWorkerCash) {
+                        isNum = (i === 4 || i === 5 || i === 6);
+                    } else {
+                        isNum = (i >= 2 && i <= 4);
+                    }
                     
                     // 빈 셀 판정 (엑셀 서식과 동일하게 빈 칸 그대로 보존)
                     const isEmptyCell = (cell === null || cell === undefined ||
                         (typeof cell === 'string' && cell.trim() === ''));
+                    // 모든 숫자 셀: 함수 결과 소수점은 반올림, 천 단위 콤마 표시 (금액)
                     const cellContent = isEmptyCell ? '' :
-                        (isNum && typeof cell === 'number' ? cell.toLocaleString() : cell);
+                        (typeof cell === 'number' ? Math.round(cell).toLocaleString() : cell);
                     const escAttr = v => (v === null || v === undefined ? '' : v.toString())
                         .replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
                     const titleAttr = formulaText
