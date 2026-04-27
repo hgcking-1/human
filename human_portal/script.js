@@ -1,12 +1,13 @@
-// 7개 일용직 양식 정의 (휴먼/채움 공통)
+// 7개 일용직 양식 정의 — 회사별로 분리 노출
+// human: KM 계열 + 입출금(휴먼) / chaeum: 채움/외국인 계열 + 입출금(채움)
 const FORMS = [
-    { id: 'f1', icon: '📊', title: '업체별 (KM)',     file: '2026.04 업체별_KM (1).xlsx',         payCol: 10 },
-    { id: 'f2', icon: '📅', title: '일자별 (KM)',     file: '2026.04 일자별_KM.xlsx',             payCol: 10 },
-    { id: 'f3', icon: '🏢', title: '업체별',          file: '2026.04-업체별 (3).xlsx',            payCol: 10 },
-    { id: 'f4', icon: '🌐', title: '업체별 외국인',   file: '2026.04-업체별_외국인.xlsx',         payCol: 10 },
-    { id: 'f5', icon: '📆', title: '일자별 (채움)',   file: '2026.04-일자별_채움.xlsx',           payCol: 10 },
-    { id: 'f6', icon: '💰', title: '입출금 (채움)',   file: '2026.04-입출금양식_채움 (4).xlsx',   payCol: 2  },
-    { id: 'f7', icon: '💵', title: '입출금 (휴먼)',   file: '2026.04-입출금양식_휴먼 (5).xlsx',   payCol: 2  }
+    { id: 'f1', icon: '📊', title: '업체별 (KM)',     file: '2026.04 업체별_KM (1).xlsx',         payCol: 10, co: 'human'  },
+    { id: 'f2', icon: '📅', title: '일자별 (KM)',     file: '2026.04 일자별_KM.xlsx',             payCol: 10, co: 'human'  },
+    { id: 'f7', icon: '💵', title: '입출금양식 (휴먼)', file: '2026.04-입출금양식_휴먼 (5).xlsx', payCol: 2,  co: 'human'  },
+    { id: 'f3', icon: '🏢', title: '업체별',          file: '2026.04-업체별 (3).xlsx',            payCol: 10, co: 'chaeum' },
+    { id: 'f4', icon: '🌐', title: '업체별 외국인',   file: '2026.04-업체별_외국인.xlsx',         payCol: 10, co: 'chaeum' },
+    { id: 'f5', icon: '📆', title: '일자별 (채움)',   file: '2026.04-일자별_채움.xlsx',           payCol: 10, co: 'chaeum' },
+    { id: 'f6', icon: '💰', title: '입출금양식 (채움)', file: '2026.04-입출금양식_채움 (4).xlsx', payCol: 2,  co: 'chaeum' }
 ];
 
 document.addEventListener('DOMContentLoaded', function() {
@@ -21,7 +22,8 @@ function buildFormTiles(prefix) {
     const grid = document.getElementById(prefix + '-form-grid');
     if (!grid) return;
     const company = prefix === 'h' ? 'human' : 'chaeum';
-    grid.innerHTML = FORMS.map(f => {
+    const forms = FORMS.filter(f => f.co === company);
+    grid.innerHTML = forms.map(f => {
         const type = company + '_' + f.id;
         return `
             <div class="form-tile" id="tile-${type}">
@@ -36,7 +38,7 @@ function buildFormTiles(prefix) {
                 </div>
             </div>`;
     }).join('');
-    FORMS.forEach(f => refreshFormTile(company + '_' + f.id));
+    forms.forEach(f => refreshFormTile(company + '_' + f.id));
 }
 
 function refreshFormTile(type) {
@@ -113,7 +115,7 @@ function recalcWorkerTotals() {
         const workerEl = document.getElementById(prefix + '-val-daily-worker');
         if (!workerEl) return;
         let sum = 0;
-        FORMS.forEach(f => {
+        FORMS.filter(f => f.co === company).forEach(f => {
             try {
                 const saved = JSON.parse(localStorage.getItem('data_' + company + '_' + f.id));
                 if (saved && saved.data) {
@@ -345,12 +347,12 @@ function applyPermissions(grade, name) {
             usageEl.textContent = prefix === 'h' ? '45,880,000원' : '22,440,000원';
         }
 
-        // 11. 일용직 근무 내역 — 7개 양식 합계
+        // 11. 일용직 근무 내역 — 회사별 양식만 합산
         const workerEl = document.getElementById(`${prefix}-val-daily-worker`);
         if (workerEl) {
             workerEl.classList.add('unmasked');
             let sum = 0;
-            FORMS.forEach(f => {
+            FORMS.filter(f => f.co === companyKey).forEach(f => {
                 try {
                     const saved = JSON.parse(localStorage.getItem('data_' + companyKey + '_' + f.id));
                     if (saved && saved.data) {
