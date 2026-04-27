@@ -871,7 +871,9 @@
                 displayData = processedData;
             }
             const colWidth = 100 / maxCols;
-            let html = '<table style="margin-top:0;"><thead>';
+            const MIN_COL_PX = 140;
+            const tableMinWidth = maxCols * MIN_COL_PX;
+            let html = `<table style="margin-top:0; min-width:${tableMinWidth}px;"><thead>`;
 
             // ── 헤더 위 sticky 행들 (있으면) — 라벨 누수/합계/그룹 부제 등 ──
             const stickyN = window._currentStickyN || ((window._currentHeaderIdx || 0) + 1);
@@ -966,7 +968,7 @@
                 const cls = txt.trim() === '' ? 'empty-header' : '';
                 const span = headerAnchorAt[idx];
                 const colspanAttr = span ? ` colspan="${span.colspan}"` : '';
-                html += `<th class="${cls}" style="width:${colWidth}%"${colspanAttr}>${txt}</th>`;
+                html += `<th class="${cls}" style="width:${colWidth}%; min-width:${MIN_COL_PX}px;"${colspanAttr}>${txt}</th>`;
             });
             html += '</tr>';
 
