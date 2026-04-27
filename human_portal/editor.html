@@ -12,6 +12,14 @@
         table { width: 100%; border-collapse: separate; border-spacing: 0; background: white; table-layout: fixed; border: 1px solid #dee2e6; }
         thead { position: sticky; top: 0; z-index: 200; }
         thead tr { box-shadow: 0 2px 4px rgba(0,0,0,0.15); }
+        /* 헤더 위/아래 sticky 추가 행 — 데이터 셀처럼 표시하되 thead의 sticky 동작 사용 */
+        thead tr.sticky-extra td { background: #fffaf0; font-size: 0.78rem; padding: 6px 10px; border: 1px solid #f5e6d3; color: #5d4037; }
+        thead tr.sticky-extra.below td { background: #fef7e6; }
+        thead tr.sticky-extra td.empty-cell { background: white !important; }
+        thead tr.sticky-extra td.merged-cell { background: #fdf6e3 !important; font-weight: 600; text-align: center; color: #5d4037; }
+        thead tr.real-header { /* 진짜 헤더 강조 — 기존 th 스타일 그대로 */ }
+        /* 합계 행 강조 */
+        tbody tr.total-emphasis td { background: #fff3e0 !important; font-weight: 700; color: #d35400; border-top: 2px solid #e67e22; border-bottom: 2px solid #e67e22; }
         th { background: #34495e; color: white; position: sticky; top: 0; padding: 10px 10px; font-weight: 700; font-size: 0.78rem; border: 1px solid #2c3e50; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; z-index: 200; }
         /* 헤더 빈 셀은 빈 칸 그대로 (엑셀 서식과 동일) */
         th.empty-header { background: white; color: #ccc; border-color: #dee2e6; }
@@ -158,7 +166,7 @@
         const urlParams = new URLSearchParams(window.location.search);
         const type = urlParams.get('type');
         // 형식 스키마 버전 — 변경 시 saved 자동 무효화하여 새 매핑/처리가 즉시 반영
-        const APP_FORMAT_VERSION = 4;
+        const APP_FORMAT_VERSION = 5;
         let currentUser = null;
         let allSheetsData = {};         // 모든 시트 데이터: { sheetName: jsonRows[][] }
         let allSheetsMerges = {};       // 시트별 병합 정보: { sheetName: [{s:{r,c}, e:{r,c}}, ...] }
@@ -220,6 +228,35 @@
         const HEADER_MERGE_IGNORE = {
             'f6': { '부가세': true },
             'f7': { '부가세': true }
+        };
+
+        // 시트별 sticky 영역 행 갯수 (1-based, 처음 N개 행을 모두 sticky로 고정)
+        // 예: 4 → row 1~4가 항상 화면 상단에 고정. 헤더 위 라벨/합계/부제 + 헤더 모두 포함
+        const SHEET_STICKY_ROWS = {
+            'f6': {
+                '미입금(채움)': 4,
+                '채움0401': 3,
+                '시재': 4,
+                '부가세': 3
+            },
+            'f7': {
+                '미입금(휴먼)': 4,
+                '휴먼': 3,
+                '시재': 4,
+                '부가세': 3
+            }
+        };
+
+        // 시트별 정렬 (col=0-based, dir='desc'/'asc')
+        const SHEET_SORT = {
+            'f6': { '채움0401': { col: 0, dir: 'desc' } },
+            'f7': { '휴먼':     { col: 0, dir: 'desc' } }
+        };
+
+        // 시트별 합계 행 (1-based 엑셀 row 번호) — 강조 표시
+        const SHEET_TOTAL_ROWS = {
+            'f6': { '부가세': [9, 14] },
+            'f7': { '부가세': [9, 14] }
         };
 
         function autoMapSheet(cellText) {
@@ -299,14 +336,19 @@
             activeSheet = name;
             const json = allSheetsData[name];
             const headerIdx = detectHeaderRow(json, name);
+            const fmId = (type.match(/_(f[1-7])$/) || [])[1] || '';
+            // sticky 영역: 매핑이 있으면 그 값, 없으면 헤더까지(헤더 행 포함 1-based)
+            const stickyN = (SHEET_STICKY_ROWS[fmId] || {})[name] || (headerIdx + 1);
             const headers = json[headerIdx] || [];
-            const data = json.slice(headerIdx + 1);
-            // 현재 시트의 병합 정보를 활성화 (renderEditor에서 사용)
+            // 데이터는 sticky 영역 다음부터
+            const data = json.slice(stickyN);
             currentMerges = allSheetsMerges[name] || [];
             window._currentHeaderIdx = headerIdx;
+            window._currentStickyN = stickyN;
+            window._currentJsonRaw = json;
             buildSheetTabs();
             renderEditor(headers, data);
-            document.getElementById('status-msg').textContent = `시트: ${name} (${data.length}행, 헤더 ${headerIdx + 1}행, 병합 ${currentMerges.length}개)`;
+            document.getElementById('status-msg').textContent = `시트: ${name} (${data.length}행, 헤더 ${headerIdx + 1}행, sticky ${stickyN}행, 병합 ${currentMerges.length}개)`;
         }
         
         document.addEventListener('DOMContentLoaded', () => {
@@ -325,10 +367,12 @@
             // 셀 뷰어: 셀에 포커스/클릭/입력하면 상단에 전체 내용 + 함수식 표시
             const editorContent = document.getElementById('editor-content');
             const updateCellViewer = (td) => {
-                if (!td || td.tagName !== 'TD') return;
+                if (!td || (td.tagName !== 'TD' && td.tagName !== 'TH')) return;
                 const r = parseInt(td.dataset.row || '0');
                 const c = parseInt(td.dataset.col || '0');
-                document.getElementById('cell-viewer-coord').textContent = colIndexToLetter(c) + (r + 1);
+                // sticky 영역 셀은 음수 row(-1, -2, ...)로 인코딩됨 → 엑셀 row로 변환
+                const excelRow = r < 0 ? -r : (r + (window._currentStickyN || 0) + 1);
+                document.getElementById('cell-viewer-coord').textContent = colIndexToLetter(c) + excelRow;
                 document.getElementById('cell-viewer-content').textContent = td.textContent || '';
                 const formula = td.dataset.formula || '';
                 const fRow = document.getElementById('cell-viewer-formula-row');
@@ -682,6 +726,26 @@
                     while (cleaned.length < maxCols) cleaned.push('');
                     return cleaned;
                 });
+                // 시트별 정렬 (예: 휴먼 시트 — 작성일자 내림차순)
+                const sortConfig = (SHEET_SORT[fmIdH] || {})[activeSheet];
+                if (sortConfig) {
+                    const unwrapVal = v => (v && typeof v === 'object' && v.isFormula) ? v.value : v;
+                    processedData.sort((a, b) => {
+                        const av = unwrapVal(a[sortConfig.col]);
+                        const bv = unwrapVal(b[sortConfig.col]);
+                        const aEmpty = (av === null || av === undefined || av === '');
+                        const bEmpty = (bv === null || bv === undefined || bv === '');
+                        if (aEmpty && bEmpty) return 0;
+                        if (aEmpty) return 1;
+                        if (bEmpty) return -1;
+                        if (typeof av === 'number' && typeof bv === 'number') {
+                            return sortConfig.dir === 'desc' ? bv - av : av - bv;
+                        }
+                        const as = av.toString();
+                        const bs = bv.toString();
+                        return sortConfig.dir === 'desc' ? bs.localeCompare(as) : as.localeCompare(bs);
+                    });
+                }
             } else {
                 processedData = data.filter(row => {
                     if (!row || row.length === 0) return false;
@@ -710,9 +774,72 @@
                 }
             }
             
-            const displayData = processedData; 
+            const displayData = processedData;
             const colWidth = 100 / maxCols;
-            let html = '<table style="margin-top:0;"><thead><tr>';
+            let html = '<table style="margin-top:0;"><thead>';
+
+            // ── 헤더 위 sticky 행들 (있으면) — 라벨 누수/합계/그룹 부제 등 ──
+            const stickyN = window._currentStickyN || ((window._currentHeaderIdx || 0) + 1);
+            const allJsonRaw = window._currentJsonRaw || [];
+            const headerExcelRowLocal = window._currentHeaderIdx || 0;
+
+            // 헬퍼: 셀(객체/원시값) → { display, formula, isEmpty, isNum, titleAttr }
+            const renderSheetCell = (cell, colIdx, dateColsLocal) => {
+                let formula = null;
+                if (cell && typeof cell === 'object' && cell.isFormula) {
+                    formula = cell.formula || '';
+                    cell = (cell.value !== undefined && cell.value !== null) ? cell.value : '';
+                }
+                if ((colIdx === 0 || (dateColsLocal && dateColsLocal.has(colIdx))) && typeof cell === 'number' && cell > 40000) {
+                    cell = new Date((cell - 25569) * 86400 * 1000).toISOString().split('T')[0];
+                }
+                const isEmpty = (cell === null || cell === undefined || (typeof cell === 'string' && cell.trim() === ''));
+                const isNum = !isEmpty && (typeof cell === 'number');
+                const display = isEmpty ? '' : (isNum ? Math.round(cell).toLocaleString() : cell);
+                const escAttr = v => (v === null || v === undefined ? '' : v.toString())
+                    .replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                const title = formula ? `📐 =${escAttr(formula)}\n→ ${escAttr(cell)}` : escAttr(cell);
+                return { display, formula, isEmpty, isNum, title };
+            };
+
+            // 헤더 위 행들을 thead에 표시 (각각 sticky 자동 적용)
+            for (let upIdx = 0; upIdx < headerExcelRowLocal; upIdx++) {
+                const upRow = allJsonRaw[upIdx] || [];
+                // 이 행에 적용되는 병합 처리
+                const upSkip = new Set();
+                const upAnchor = {};
+                (currentMerges || []).forEach(m => {
+                    if (m.s.r <= upIdx && upIdx <= m.e.r) {
+                        for (let c = m.s.c; c <= m.e.c; c++) {
+                            if (upIdx === m.s.r && c === m.s.c) {
+                                upAnchor[c] = { colspan: m.e.c - m.s.c + 1, rowspan: m.e.r - m.s.r + 1 };
+                            } else {
+                                upSkip.add(c);
+                            }
+                        }
+                    }
+                });
+                html += '<tr class="sticky-extra">';
+                for (let c = 0; c < maxCols; c++) {
+                    if (upSkip.has(c)) continue;
+                    const r = renderSheetCell(upRow[c], c, null);
+                    const span = upAnchor[c];
+                    const colspanAttr = span && span.colspan > 1 ? ` colspan="${span.colspan}"` : '';
+                    const rowspanAttr = span && span.rowspan > 1 ? ` rowspan="${span.rowspan}"` : '';
+                    const cls = [
+                        r.isNum ? 'num-cell' : '',
+                        r.formula && !r.isEmpty ? 'formula-cell' : '',
+                        r.isEmpty ? 'empty-cell' : '',
+                        span ? 'merged-cell' : ''
+                    ].filter(Boolean).join(' ');
+                    const fAttr = r.formula ? ` data-formula="${r.formula.replace(/"/g, '&quot;')}"` : '';
+                    html += `<td contenteditable="true" class="${cls}" data-row="-${upIdx + 1}" data-col="${c}" title="${r.title}"${fAttr}${colspanAttr}${rowspanAttr}>${r.display}</td>`;
+                }
+                html += '</tr>';
+            }
+
+            // 진짜 헤더 행
+            html += '<tr class="real-header">';
             // 헤더 행의 병합 처리 — anchor 셀에 colspan 부여, 영역 내부 셀은 skip
             // 단, HEADER_MERGE_IGNORE에 매핑된 시트는 헤더 병합을 무시 (각 셀 분리 표시)
             const headerExcelRow = (typeof window._currentHeaderIdx === 'number') ? window._currentHeaderIdx : 0;
@@ -740,7 +867,49 @@
                 const colspanAttr = span ? ` colspan="${span.colspan}"` : '';
                 html += `<th class="${cls}" style="width:${colWidth}%"${colspanAttr}>${txt}</th>`;
             });
-            html += '</tr></thead><tbody>';
+            html += '</tr>';
+
+            // 헤더 아래 sticky 데이터 행들 (시재 시트처럼 stickyN > headerIdx+1 인 경우)
+            for (let belowIdx = headerExcelRowLocal + 1; belowIdx < stickyN; belowIdx++) {
+                const belowRow = allJsonRaw[belowIdx] || [];
+                const bSkip = new Set();
+                const bAnchor = {};
+                (currentMerges || []).forEach(m => {
+                    if (m.s.r <= belowIdx && belowIdx <= m.e.r) {
+                        for (let c = m.s.c; c <= m.e.c; c++) {
+                            if (belowIdx === m.s.r && c === m.s.c) {
+                                bAnchor[c] = { colspan: m.e.c - m.s.c + 1, rowspan: m.e.r - m.s.r + 1 };
+                            } else {
+                                bSkip.add(c);
+                            }
+                        }
+                    }
+                });
+                html += '<tr class="sticky-extra below">';
+                for (let c = 0; c < maxCols; c++) {
+                    if (bSkip.has(c)) continue;
+                    const r = renderSheetCell(belowRow[c], c, dateCols);
+                    const span = bAnchor[c];
+                    const colspanAttr = span && span.colspan > 1 ? ` colspan="${span.colspan}"` : '';
+                    const rowspanAttr = span && span.rowspan > 1 ? ` rowspan="${span.rowspan}"` : '';
+                    const cls = [
+                        r.isNum ? 'num-cell' : '',
+                        r.formula && !r.isEmpty ? 'formula-cell' : '',
+                        r.isEmpty ? 'empty-cell' : '',
+                        span ? 'merged-cell' : ''
+                    ].filter(Boolean).join(' ');
+                    const fAttr = r.formula ? ` data-formula="${r.formula.replace(/"/g, '&quot;')}"` : '';
+                    html += `<td contenteditable="true" class="${cls}" data-row="-${belowIdx + 1}" data-col="${c}" title="${r.title}"${fAttr}${colspanAttr}${rowspanAttr}>${r.display}</td>`;
+                }
+                html += '</tr>';
+            }
+
+            html += '</thead><tbody>';
+
+            // 합계 행 강조 매핑 (1-based 엑셀 row → 0-based rIdx in tbody)
+            // tbody의 첫 행 rIdx=0 = 엑셀 row (stickyN+1) 1-based
+            const totalExcelRowsLocal = (SHEET_TOTAL_ROWS[fmIdH] || {})[activeSheet] || [];
+            const totalRowSet = new Set(totalExcelRowsLocal.map(r => r - stickyN - 1));
             
             let lastMonth = '';
             let lastWeek = '';
@@ -869,6 +1038,7 @@
                 }
 
                 let rowClass = `month-bg-${monthIndex}`;
+                if (totalRowSet.has(rIdx)) rowClass += ' total-emphasis';
                 lastMonth = currentMonth;
                 lastWeek = currentWeek;
                 
