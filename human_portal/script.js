@@ -1,13 +1,14 @@
-// 7개 일용직 양식 정의 — 회사별로 분리 노출
-// human: KM 계열 + 입출금(휴먼) / chaeum: 채움/외국인 계열 + 입출금(채움)
+// 7개 일용직 양식 정의 — 회사별 분리 노출
+// 휴먼 = KM 계열 청구·지급 + 금전출납(세무용) 휴먼
+// 채움 = 채움 청구·외국인·지급 + 금전출납(세무용) 채움
 const FORMS = [
-    { id: 'f1', icon: '📊', title: '업체별 (KM)',     file: '2026.04 업체별_KM (1).xlsx',         payCol: 10, co: 'human'  },
-    { id: 'f2', icon: '📅', title: '일자별 (KM)',     file: '2026.04 일자별_KM.xlsx',             payCol: 10, co: 'human'  },
-    { id: 'f7', icon: '💵', title: '입출금양식 (휴먼)', file: '2026.04-입출금양식_휴먼 (5).xlsx', payCol: 2,  co: 'human'  },
-    { id: 'f3', icon: '🏢', title: '업체별',          file: '2026.04-업체별 (3).xlsx',            payCol: 10, co: 'chaeum' },
-    { id: 'f4', icon: '🌐', title: '업체별 외국인',   file: '2026.04-업체별_외국인.xlsx',         payCol: 10, co: 'chaeum' },
-    { id: 'f5', icon: '📆', title: '일자별 (채움)',   file: '2026.04-일자별_채움.xlsx',           payCol: 10, co: 'chaeum' },
-    { id: 'f6', icon: '💰', title: '입출금양식 (채움)', file: '2026.04-입출금양식_채움 (4).xlsx', payCol: 2,  co: 'chaeum' }
+    { id: 'f1', icon: '📊', title: '업체별 (청구용·KM)', file: '2026.04 업체별(청구용)_KM 휴먼.xlsx',     payCol: 10, co: 'human'  },
+    { id: 'f2', icon: '📅', title: '일자별 (지급용·KM)', file: '2026.04 일자별(지급용)_KM 휴먼.xlsx',     payCol: 10, co: 'human'  },
+    { id: 'f7', icon: '💵', title: '금전출납 (세무용)',  file: '2026.04-금전출납(세무용)_휴먼.xlsx',       payCol: 2,  co: 'human'  },
+    { id: 'f3', icon: '🏢', title: '업체별 (청구용)',    file: '2026.04-업체별(청구용)_채움.xlsx',         payCol: 10, co: 'chaeum' },
+    { id: 'f4', icon: '🌐', title: '업체별 외국인',      file: '2026.04-업체별(청구용)_외국인 채움.xlsx',  payCol: 10, co: 'chaeum' },
+    { id: 'f5', icon: '📆', title: '일자별 (지급용)',    file: '2026.04-일자별(지급용)_채움.xlsx',         payCol: 10, co: 'chaeum' },
+    { id: 'f6', icon: '💰', title: '금전출납 (세무용)',  file: '2026.04-금전출납(세무용)_채움.xlsx',       payCol: 2,  co: 'chaeum' }
 ];
 
 document.addEventListener('DOMContentLoaded', function() {
