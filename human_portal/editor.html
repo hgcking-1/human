@@ -177,7 +177,7 @@
         const urlParams = new URLSearchParams(window.location.search);
         const type = urlParams.get('type');
         // 형식 스키마 버전 — 변경 시 saved 자동 무효화하여 새 매핑/처리가 즉시 반영
-        const APP_FORMAT_VERSION = 5;
+        const APP_FORMAT_VERSION = 6;
         // 페이지네이션 — 시트가 PAGE_THRESHOLD 행 초과 시 활성화
         const PAGE_THRESHOLD = 500;
         let currentPage = 1;
@@ -274,6 +274,21 @@
             'f7': { '부가세': [9, 14] }
         };
 
+        // 강제 날짜 컬럼 매핑 (양식 → 시트 → [0-based 컬럼 인덱스 배열])
+        // 헤더 키워드 인식이 실패해도 이 컬럼은 무조건 시리얼 → 날짜 변환
+        const FORCE_DATE_COLS = {
+            'f7': {
+                '시재':       [1],          // B열 (날짜)
+                '미입금(휴먼)': [1],         // B열 (작성일자)
+                '휴먼':       [0, 9, 10]    // A(작성일자), J(입금일), K(출금일)
+            },
+            'f6': {
+                '시재':       [1],
+                '미입금(채움)': [1],
+                '채움0401':   [0, 9, 10]
+            }
+        };
+
         function autoMapSheet(cellText) {
             if (!cellText) return null;
             const t = cellText.toString().trim();
@@ -365,7 +380,12 @@
             window._currentFullData = data;  // 페이지네이션을 위한 전체 데이터 보존
             buildSheetTabs();
             renderEditor(headers, data);
-            document.getElementById('status-msg').textContent = `시트: ${name} (${data.length}행, 헤더 ${headerIdx + 1}행, sticky ${stickyN}행, 병합 ${currentMerges.length}개)`;
+            // 디버그: 헤더 컬럼 라벨 + 날짜 컬럼으로 인식된 위치 표시
+            const dbgHeaders = (headers || []).slice(0, 8).map(h => {
+                if (h && typeof h === 'object' && h.isFormula) h = h.value;
+                return h === null || h === undefined ? '∅' : h.toString().trim() || '∅';
+            }).join(' | ');
+            document.getElementById('status-msg').textContent = `시트: ${name} (${data.length}행, 헤더 ${headerIdx + 1}행, sticky ${stickyN}행, 병합 ${currentMerges.length}개) — 헤더: ${dbgHeaders}`;
         }
 
         function buildPagination(totalRows) {
@@ -767,6 +787,9 @@
                 const txt = (h || '').toString();
                 if (DATE_HEADER_KEYWORDS.some(k => txt.includes(k))) dateCols.add(i);
             });
+            // 시트별 강제 날짜 컬럼 추가 (키워드 인식이 실패해도 안전망)
+            const forceDateCols = (FORCE_DATE_COLS[fmIdH] || {})[activeSheet] || [];
+            forceDateCols.forEach(c => dateCols.add(c));
             
             // 새 양식(f1~f7)은 엑셀 원본 그대로: 빈 행/빈 셀/순서 모두 보존 (isRawForm은 위에서 정의됨)
             const parseDateObj = (val) => {
