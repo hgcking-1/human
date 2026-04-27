@@ -17,7 +17,25 @@
         tr:nth-child(even) { background-color: #f8f9fa; }
         tr:hover { background-color: #edf2f7; }
         [contenteditable="true"] { background: #fffde7; outline: none; transition: background 0.2s; z-index: 1; }
-        [contenteditable="true"]:focus { background: #fff; box-shadow: inset 0 0 0 2px #3498db; z-index: 10; position: relative; }
+        [contenteditable="true"]:focus {
+            background: #fff;
+            box-shadow: 0 6px 18px rgba(52,152,219,0.35), inset 0 0 0 2px #3498db;
+            z-index: 80;
+            position: relative;
+            white-space: normal !important;
+            overflow: visible !important;
+            word-break: break-all;
+            min-height: 32px;
+            min-width: 180px;
+        }
+        td.company-link:hover, td:hover { background: #eaf4fc; }
+
+        /* 셀 뷰어 (수식 입력줄 스타일) */
+        .cell-viewer { display: flex; align-items: stretch; gap: 0; margin-bottom: 6px; flex-shrink: 0; border-radius: 4px; overflow: hidden; border: 1px solid #f1c40f; }
+        .cell-viewer-label { display: flex; align-items: center; padding: 6px 10px; background: #f9e79f; color: #7d6608; font-size: 0.75rem; font-weight: 700; white-space: nowrap; }
+        .cell-viewer-coord { display: flex; align-items: center; padding: 6px 12px; background: white; border-left: 1px solid #f1c40f; border-right: 1px solid #f1c40f; font-family: 'Roboto Mono', monospace; color: #2c3e50; font-size: 0.78rem; min-width: 70px; font-weight: 600; }
+        .cell-viewer-content { flex: 1; padding: 6px 12px; background: #fffdf2; font-size: 0.85rem; color: #2c3e50; word-break: break-all; white-space: pre-wrap; overflow-y: auto; max-height: 90px; line-height: 1.5; }
+        .cell-viewer-content:empty::before { content: '셀을 클릭하면 전체 내용이 여기에 표시됩니다.'; color: #aaa; font-style: italic; }
         
         .btn-group { display: flex; gap: 8px; align-items: center; }
         .upload-label { padding: 0.5rem 0.8rem; background: #27ae60; color: white; border-radius: 4px; cursor: pointer; font-size: 0.8rem; display: flex; align-items: center; gap: 5px; font-weight: 500; }
@@ -78,6 +96,12 @@
         </div>
         
         <div class="sheet-tabs" id="sheet-tabs" style="display:none;"></div>
+
+        <div class="cell-viewer" id="cell-viewer">
+            <div class="cell-viewer-label">📍 셀 내용</div>
+            <div class="cell-viewer-coord" id="cell-viewer-coord">-</div>
+            <div class="cell-viewer-content" id="cell-viewer-content"></div>
+        </div>
 
         <div class="table-wrapper" id="editor-content">
             <p style="text-align:center; padding:3rem; color:#95a5a6;">데이터를 불러오는 중...</p>
@@ -190,7 +214,30 @@
                 document.getElementById('master-add-row').style.display = 'block';
             }
             loadData();
+
+            // 셀 뷰어: 셀에 포커스/클릭/입력하면 상단에 전체 내용 표시
+            const editorContent = document.getElementById('editor-content');
+            const updateCellViewer = (td) => {
+                if (!td || td.tagName !== 'TD') return;
+                const r = parseInt(td.dataset.row || '0');
+                const c = parseInt(td.dataset.col || '0');
+                document.getElementById('cell-viewer-coord').textContent = colIndexToLetter(c) + (r + 1);
+                document.getElementById('cell-viewer-content').textContent = td.textContent || '';
+            };
+            editorContent.addEventListener('focusin', e => updateCellViewer(e.target));
+            editorContent.addEventListener('click', e => updateCellViewer(e.target));
+            editorContent.addEventListener('input', e => updateCellViewer(e.target));
         });
+
+        function colIndexToLetter(idx) {
+            let s = '';
+            let n = idx;
+            do {
+                s = String.fromCharCode(65 + (n % 26)) + s;
+                n = Math.floor(n / 26) - 1;
+            } while (n >= 0);
+            return s;
+        }
 
         function addRow() {
             const tbody = document.querySelector('tbody');
@@ -613,6 +660,9 @@
                     else isNum = (i >= 2 && i <= 4);
                     
                     const cellContent = isNum && typeof cell === 'number' ? cell.toLocaleString() : cell;
+                    // 셀 전체 원본 값 — title(hover 툴팁) + 셀 뷰어용
+                    const titleAttr = (cell === null || cell === undefined ? '' : cell.toString())
+                        .replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
                     // 요약 시트의 텍스트 셀 → 매핑된 상세 시트로 점프 (사용자 명시 매핑 + 자동 매핑)
                     let linkSheet = null;
@@ -621,11 +671,11 @@
                     }
                     if (linkSheet) {
                         const safe = linkSheet.replace(/'/g, "\\'");
-                        html += `<td class="company-link" title="${linkSheet} 시트로 이동" onclick="switchSheet('${safe}')">${cellContent}</td>`;
+                        html += `<td class="company-link" title="${linkSheet} 시트로 이동 — ${titleAttr}" data-row="${rIdx}" data-col="${i}" onclick="switchSheet('${safe}')">${cellContent}</td>`;
                     } else if (isWorkerCompany && i === 1 && cell !== '' && !isRawForm) {
-                        html += `<td class="company-link" onclick="showCompanyDetail('${cell}')">${cell}</td>`;
+                        html += `<td class="company-link" title="${titleAttr}" data-row="${rIdx}" data-col="${i}" onclick="showCompanyDetail('${cell}')">${cell}</td>`;
                     } else {
-                        html += `<td contenteditable="true" class="${isNum ? 'num-cell' : ''}" data-row="${rIdx}" data-col="${i}">${cellContent}</td>`;
+                        html += `<td contenteditable="true" class="${isNum ? 'num-cell' : ''}" data-row="${rIdx}" data-col="${i}" title="${titleAttr}">${cellContent}</td>`;
                     }
                 }
                 html += '</tr>';
