@@ -202,11 +202,24 @@
         };
 
         // 헤더 라벨 override (양식 → 시트 → 컬럼 인덱스(0-based) → 라벨)
-        // 엑셀에 빈 셀로 남아있는 컬럼에 표시 라벨을 강제로 부여
+        // 엑셀에 빈 셀로 남아있거나 병합 해제 후 따로 표시할 컬럼에 라벨을 강제 부여
         const HEADER_OVERRIDES = {
             'f1': {
                 '2026년 4월휴먼': { 12: '인원수' }  // M열(0-based 12) — 추가금액과 지급 사이
+            },
+            'f6': {
+                '부가세': { 1: '부가세 (년)', 2: '월' }  // B,C 분리 (헤더 병합 무시 + 라벨 부여)
+            },
+            'f7': {
+                '부가세': { 1: '부가세 (년)', 2: '월' }
             }
+        };
+
+        // 헤더 행의 병합을 무시할 시트 (양식 → 시트 → true)
+        // 데이터 행의 병합은 그대로 유지됨 (예: B5:B8 '2025년')
+        const HEADER_MERGE_IGNORE = {
+            'f6': { '부가세': true },
+            'f7': { '부가세': true }
         };
 
         function autoMapSheet(cellText) {
@@ -701,20 +714,24 @@
             const colWidth = 100 / maxCols;
             let html = '<table style="margin-top:0;"><thead><tr>';
             // 헤더 행의 병합 처리 — anchor 셀에 colspan 부여, 영역 내부 셀은 skip
+            // 단, HEADER_MERGE_IGNORE에 매핑된 시트는 헤더 병합을 무시 (각 셀 분리 표시)
             const headerExcelRow = (typeof window._currentHeaderIdx === 'number') ? window._currentHeaderIdx : 0;
             const headerSkipCols = new Set();
             const headerAnchorAt = {};
-            (currentMerges || []).forEach(m => {
-                if (m.s.r <= headerExcelRow && headerExcelRow <= m.e.r) {
-                    for (let c = m.s.c; c <= m.e.c; c++) {
-                        if (headerExcelRow === m.s.r && c === m.s.c) {
-                            headerAnchorAt[c] = { colspan: m.e.c - m.s.c + 1 };
-                        } else {
-                            headerSkipCols.add(c);
+            const ignoreHeaderMerge = (HEADER_MERGE_IGNORE[fmIdH] || {})[activeSheet] === true;
+            if (!ignoreHeaderMerge) {
+                (currentMerges || []).forEach(m => {
+                    if (m.s.r <= headerExcelRow && headerExcelRow <= m.e.r) {
+                        for (let c = m.s.c; c <= m.e.c; c++) {
+                            if (headerExcelRow === m.s.r && c === m.s.c) {
+                                headerAnchorAt[c] = { colspan: m.e.c - m.s.c + 1 };
+                            } else {
+                                headerSkipCols.add(c);
+                            }
                         }
                     }
-                }
-            });
+                });
+            }
             displayHeaders.forEach((h, idx) => {
                 if (headerSkipCols.has(idx)) return;
                 const txt = (h === null || h === undefined) ? '' : h.toString();
