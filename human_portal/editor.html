@@ -43,6 +43,13 @@
         .company-link { color: #2980b9; text-decoration: underline; cursor: pointer; font-weight: bold; }
         .company-link:hover { color: #1a5276; }
 
+        /* 시트 탭 */
+        .sheet-tabs { display: flex; gap: 3px; margin-bottom: 6px; overflow-x: auto; padding: 6px 4px 4px; flex-shrink: 0; background: #f8f9fa; border-radius: 4px; border: 1px solid #dee2e6; }
+        .sheet-tab { padding: 6px 12px; background: white; border: 1px solid #ced4da; border-radius: 4px 4px 0 0; cursor: pointer; white-space: nowrap; font-size: 0.78rem; flex-shrink: 0; transition: all 0.15s; }
+        .sheet-tab:hover { background: #e9ecef; }
+        .sheet-tab.active { background: #34495e; color: white; border-color: #2c3e50; font-weight: 600; box-shadow: 0 2px 4px rgba(52,73,94,0.25); }
+        .sheet-tab .badge-summary { background: #f39c12; color: white; padding: 1px 5px; border-radius: 8px; margin-left: 6px; font-size: 0.65rem; }
+
         /* 모달 스타일 */
         .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); }
         .modal-content { background: white; margin: 5% auto; padding: 20px; border-radius: 12px; width: 80%; max-height: 80vh; overflow-y: auto; box-shadow: 0 5px 15px rgba(0,0,0,0.3); }
@@ -70,6 +77,8 @@
             </div>
         </div>
         
+        <div class="sheet-tabs" id="sheet-tabs" style="display:none;"></div>
+
         <div class="table-wrapper" id="editor-content">
             <p style="text-align:center; padding:3rem; color:#95a5a6;">데이터를 불러오는 중...</p>
         </div>
@@ -100,7 +109,74 @@
         const urlParams = new URLSearchParams(window.location.search);
         const type = urlParams.get('type');
         let currentUser = null;
-        let allSheetsData = {}; // 모든 시트 데이터를 저장할 객체
+        let allSheetsData = {};         // 모든 시트 데이터: { sheetName: jsonRows[][] }
+        let sheetOrder = [];            // 시트 표시 순서 (workbook 원본 순서)
+        let activeSheet = null;         // 현재 표시 중인 시트 이름
+        let summarySheetName = null;    // 요약 시트 이름 (보통 첫 시트)
+
+        // 양식별 요약 시트의 셀 → 상세 시트 매핑
+        // 사용자가 명시한 매핑(우선) + 자동 매핑(시트명이 셀 텍스트와 일치/포함)이 fallback
+        const SUMMARY_LINKS = {
+            'f1': {
+                '신촌연세의료원': '신촌',
+                '동문회관': '동문',
+                '용인동백세브란스': '용인',
+                '강남세브란스': '강남',
+                '다보스병원': '2026년 4월 주차'
+            }
+        };
+
+        function autoMapSheet(cellText) {
+            if (!cellText) return null;
+            const t = cellText.toString().trim();
+            if (!t) return null;
+            // 시트명이 셀 텍스트의 부분문자열이거나 그 반대일 때 매핑
+            return sheetOrder.find(s => s !== activeSheet && (s === t || t.includes(s) || s.includes(t))) || null;
+        }
+
+        function resolveSheetLink(cellText) {
+            const fmIdLink = (type.match(/_(f[1-7])$/) || [])[1] || '';
+            const explicit = (SUMMARY_LINKS[fmIdLink] || {})[(cellText || '').toString().trim()];
+            if (explicit && allSheetsData[explicit]) return explicit;
+            const auto = autoMapSheet(cellText);
+            return (auto && allSheetsData[auto]) ? auto : null;
+        }
+
+        function detectHeaderRow(json) {
+            // 4셀 이상 채워진 첫 행을 헤더로 간주 (요약/상세 시트 모두 자동 처리)
+            for (let i = 0; i < Math.min(8, json.length); i++) {
+                if (json[i] && json[i].filter(c => c !== null && c !== undefined && c.toString().trim() !== '').length >= 4) {
+                    return i;
+                }
+            }
+            return 0;
+        }
+
+        function buildSheetTabs() {
+            const tabs = document.getElementById('sheet-tabs');
+            if (!tabs) return;
+            if (sheetOrder.length === 0) { tabs.style.display = 'none'; return; }
+            tabs.style.display = 'flex';
+            tabs.innerHTML = sheetOrder.map(n => {
+                const isActive = n === activeSheet;
+                const isSummary = n === summarySheetName;
+                const safe = n.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+                const badge = isSummary ? '<span class="badge-summary">요약</span>' : '';
+                return `<div class="sheet-tab ${isActive?'active':''}" onclick="switchSheet('${safe}')">${n}${badge}</div>`;
+            }).join('');
+        }
+
+        function switchSheet(name) {
+            if (!allSheetsData[name]) return;
+            activeSheet = name;
+            const json = allSheetsData[name];
+            const headerIdx = detectHeaderRow(json);
+            const headers = json[headerIdx] || [];
+            const data = json.slice(headerIdx + 1);
+            buildSheetTabs();
+            renderEditor(headers, data);
+            document.getElementById('status-msg').textContent = `시트: ${name} (${data.length}행)`;
+        }
         
         document.addEventListener('DOMContentLoaded', () => {
             const session = JSON.parse(localStorage.getItem('userSession'));
@@ -207,8 +283,18 @@
             if (saved) {
                 try {
                     const parsed = JSON.parse(saved);
+                    if (parsed.sheets && Object.keys(parsed.sheets).length > 0) {
+                        allSheetsData = parsed.sheets;
+                        sheetOrder = parsed.sheetOrder && parsed.sheetOrder.length ? parsed.sheetOrder : Object.keys(parsed.sheets);
+                        summarySheetName = sheetOrder[0] || null;
+                        activeSheet = summarySheetName;
+                        const tag = parsed.fileName ? `📁 ${parsed.fileName} (${parsed.uploadedAt || '저장됨'})` : '저장된 데이터';
+                        fileInfo.textContent = `${tag} · ${sheetOrder.length}개 시트`;
+                        buildSheetTabs();
+                        switchSheet(activeSheet);
+                        return;
+                    }
                     if (parsed.headers && parsed.data) {
-                        if (parsed.sheets) allSheetsData = parsed.sheets;
                         const tag = parsed.fileName ? `📁 ${parsed.fileName} (${parsed.uploadedAt || '저장됨'})` : '저장된 데이터';
                         fileInfo.textContent = tag;
                         renderEditor(parsed.headers, parsed.data);
@@ -228,38 +314,31 @@
                 if (!response.ok) throw new Error('File not found');
                 const arrayBuffer = await response.arrayBuffer();
                 const workbook = XLSX.read(new Uint8Array(arrayBuffer), { type: 'array', dense: true });
-                
-                // 모든 시트 데이터 저장 (메인 요약 시트 제외)
-                allSheetsData = {};
-                workbook.SheetNames.forEach(sheetName => {
-                    if (sheetName !== "2026년 04월채움") {
-                        const ws = workbook.Sheets[sheetName];
-                        allSheetsData[sheetName] = XLSX.utils.sheet_to_json(ws, { header: 1 });
-                    }
-                });
-
-                const firstSheetName = workbook.SheetNames[0];
-                const worksheet = workbook.Sheets[firstSheetName];
-                const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
-                
-                if (jsonData.length > 0) {
-                    fileInfo.textContent = "원본 연동됨";
-                    // 양식별 명시 헤더 행 (1-based) → 0-based 인덱스
-                    const fmIdLoad = (type.match(/_(f[1-7])$/) || [])[1] || '';
-                    let startIdx = HEADER_ROWS[fmIdLoad] ? (HEADER_ROWS[fmIdLoad] - 1) : 0;
-                    // 헤더 행이 비어있거나 누수일 경우 아래 4행 내에서 자동 보정
-                    if (!jsonData[startIdx] || jsonData[startIdx].filter(c => c && c.toString().trim() !== '').length < 3) {
-                        for (let i = 0; i < Math.min(jsonData.length, startIdx + 4); i++) {
-                            if (jsonData[i] && jsonData[i].filter(c => c && c.toString().trim() !== '').length >= 4) { startIdx = i; break; }
-                        }
-                    }
-                    renderEditor(jsonData[startIdx], jsonData.slice(startIdx + 1));
-                } else {
-                    container.innerHTML = `<p style="text-align:center; padding:3rem; color:#95a5a6;">파일에 데이터가 없습니다.</p>`;
-                }
+                ingestWorkbook(workbook);
+                fileInfo.textContent = `원본 연동됨 (${sheetOrder.length}개 시트)`;
             } catch (error) {
                 container.innerHTML = `<p style="color:#e67e22; text-align:center; padding:2rem;">원본 엑셀 파일을 로컬에서 찾을 수 없습니다. <br>대신 <b>[엑셀 업로드]</b> 버튼을 눌러 파일을 직접 선택해 주세요.</p>`;
             }
+        }
+
+        // workbook → 모든 시트 보존 + 첫 시트 활성화 + 시트 탭 그리기
+        function ingestWorkbook(workbook) {
+            allSheetsData = {};
+            sheetOrder = [];
+            workbook.SheetNames.forEach(sheetName => {
+                const ws = workbook.Sheets[sheetName];
+                if (!ws) return;
+                allSheetsData[sheetName] = XLSX.utils.sheet_to_json(ws, { header: 1 });
+                sheetOrder.push(sheetName);
+            });
+            summarySheetName = sheetOrder[0] || null;
+            activeSheet = summarySheetName;
+            if (!activeSheet) {
+                document.getElementById('editor-content').innerHTML = `<p style="text-align:center; padding:3rem; color:#95a5a6;">파일에 시트가 없습니다.</p>`;
+                return;
+            }
+            buildSheetTabs();
+            switchSheet(activeSheet);
         }
 
         function renderEditor(headers, data) {
@@ -534,9 +613,16 @@
                     else isNum = (i >= 2 && i <= 4);
                     
                     const cellContent = isNum && typeof cell === 'number' ? cell.toLocaleString() : cell;
-                    
-                    // 업체명 클릭 가능하게 설정 (업체별 또는 외국인 양식에서 업체명 열은 1번 인덱스)
-                    if (isWorkerCompany && i === 1 && cell !== '') {
+
+                    // 요약 시트의 텍스트 셀 → 매핑된 상세 시트로 점프 (사용자 명시 매핑 + 자동 매핑)
+                    let linkSheet = null;
+                    if (activeSheet === summarySheetName && cell !== '' && !isNum) {
+                        linkSheet = resolveSheetLink(cell);
+                    }
+                    if (linkSheet) {
+                        const safe = linkSheet.replace(/'/g, "\\'");
+                        html += `<td class="company-link" title="${linkSheet} 시트로 이동" onclick="switchSheet('${safe}')">${cellContent}</td>`;
+                    } else if (isWorkerCompany && i === 1 && cell !== '' && !isRawForm) {
                         html += `<td class="company-link" onclick="showCompanyDetail('${cell}')">${cell}</td>`;
                     } else {
                         html += `<td contenteditable="true" class="${isNum ? 'num-cell' : ''}" data-row="${rIdx}" data-col="${i}">${cellContent}</td>`;
@@ -641,41 +727,20 @@
             reader.onload = function(e) {
                 try {
                     const workbook = XLSX.read(new Uint8Array(e.target.result), { type: 'array', dense: true });
-
-                    // 업로드 시 모든 시트 데이터 저장
-                    allSheetsData = {};
-                    workbook.SheetNames.forEach(sheetName => {
-                        allSheetsData[sheetName] = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1 });
-                    });
-
-                    const worksheet = workbook.Sheets[workbook.SheetNames[0]];
-                    const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
-                    if (jsonData.length > 0) {
-                        // 양식별 명시 헤더 행 우선, 없으면 자동 탐지(상위 5행 중 4셀 이상 채워진 행)
-                        const fmIdU = (type.match(/_(f[1-7])$/) || [])[1] || '';
-                        let headerIdx = HEADER_ROWS[fmIdU] ? (HEADER_ROWS[fmIdU] - 1) : 0;
-                        if (!jsonData[headerIdx] || jsonData[headerIdx].filter(c => c && c.toString().trim()).length < 3) {
-                            for (let i = 0; i < Math.min(5, jsonData.length); i++) {
-                                if (jsonData[i] && jsonData[i].filter(c => c && c.toString().trim()).length >= 4) { headerIdx = i; break; }
-                            }
-                        }
-                        const headers = jsonData[headerIdx] || [];
-                        // 엑셀 원본 그대로: 빈 행도 보존
-                        const data = jsonData.slice(headerIdx + 1);
-
-                        // 자동 저장
-                        localStorage.setItem('data_' + type, JSON.stringify({
-                            headers, data,
-                            sheets: allSheetsData,
-                            fileName: file.name,
-                            uploadedAt: new Date().toLocaleString('ko-KR')
-                        }));
-
-                        renderEditor(headers, data);
-                        document.getElementById('file-info').textContent = `📁 ${file.name} (자동 저장됨)`;
-                        document.getElementById('status-msg').textContent = `${data.length}행 자동 저장 완료`;
-                        alert(`✅ "${file.name}" 업로드 및 자동 저장 완료\n${data.length}행이 저장되었습니다.`);
-                    }
+                    ingestWorkbook(workbook);
+                    // 자동 저장 (모든 시트 보존)
+                    const activeJson = allSheetsData[activeSheet] || [];
+                    const headerIdx = detectHeaderRow(activeJson);
+                    localStorage.setItem('data_' + type, JSON.stringify({
+                        headers: activeJson[headerIdx] || [],
+                        data: activeJson.slice(headerIdx + 1),
+                        sheets: allSheetsData,
+                        sheetOrder: sheetOrder,
+                        fileName: file.name,
+                        uploadedAt: new Date().toLocaleString('ko-KR')
+                    }));
+                    document.getElementById('file-info').textContent = `📁 ${file.name} · ${sheetOrder.length}개 시트 (자동 저장됨)`;
+                    alert(`✅ "${file.name}" 업로드 및 자동 저장 완료\n${sheetOrder.length}개 시트가 저장되었습니다.`);
                 } catch (err) {
                     alert('파일을 읽는 중 오류가 발생했습니다: ' + err.message);
                 }
@@ -700,22 +765,9 @@
                 
                 const arrayBuffer = await response.arrayBuffer();
                 const workbook = XLSX.read(new Uint8Array(arrayBuffer), { type: 'array', dense: true });
-                
-                // 모든 시트 데이터 저장
-                allSheetsData = {};
-                workbook.SheetNames.forEach(sheetName => {
-                    if (sheetName !== "2026년 04월채움") {
-                        allSheetsData[sheetName] = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1 });
-                    }
-                });
-
-                const worksheet = workbook.Sheets[workbook.SheetNames[0]];
-                const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
-                
-                if (jsonData.length > 0) {
-                    renderEditor(jsonData[0], jsonData.slice(1));
-                    alert('구글 드라이브 데이터 로드 완료! [변경사항 저장]을 눌러야 유지됩니다.');
-                }
+                ingestWorkbook(workbook);
+                document.getElementById('file-info').textContent = `☁️ 구글 드라이브 · ${sheetOrder.length}개 시트`;
+                alert('구글 드라이브 데이터 로드 완료! [변경사항 저장]을 눌러야 유지됩니다.');
             } catch (error) {
                 alert('오류: ' + error.message);
                 statusMsg.textContent = "데이터 로드 실패";
