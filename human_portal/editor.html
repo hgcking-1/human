@@ -13,6 +13,9 @@
         thead { position: sticky; top: 0; z-index: 200; }
         thead tr { box-shadow: 0 2px 4px rgba(0,0,0,0.15); }
         th { background: #34495e; color: white; position: sticky; top: 0; padding: 10px 10px; font-weight: 700; font-size: 0.78rem; border: 1px solid #2c3e50; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; z-index: 200; }
+        /* 헤더 빈 셀은 빈 칸 그대로 (엑셀 서식과 동일) */
+        th.empty-header { background: white; color: #ccc; border-color: #dee2e6; }
+        th:empty { background: white; border-color: #dee2e6; }
         td { padding: 6px 10px; border: 1px solid #dee2e6; font-size: 0.75rem; color: #333; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
         tr:nth-child(even) { background-color: #f8f9fa; }
         tr:hover { background-color: #edf2f7; }
@@ -614,7 +617,11 @@
             const displayData = processedData; 
             const colWidth = 100 / maxCols;
             let html = '<table style="margin-top:0;"><thead><tr>';
-            displayHeaders.forEach(h => html += `<th style="width:${colWidth}%">${h || ''}</th>`);
+            displayHeaders.forEach(h => {
+                const txt = (h === null || h === undefined) ? '' : h.toString();
+                const cls = txt.trim() === '' ? 'empty-header' : '';
+                html += `<th class="${cls}" style="width:${colWidth}%">${txt}</th>`;
+            });
             html += '</tr></thead><tbody>';
             
             let lastMonth = '';
