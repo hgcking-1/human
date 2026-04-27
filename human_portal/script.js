@@ -98,6 +98,7 @@ function quickUpload(event, type) {
             // 엑셀 원본 그대로: 빈 행도 보존 (사용자 요청)
             const data = json.slice(headerIdx + 1);
             const payload = {
+                formatVersion: 3,
                 headers,
                 data,
                 sheets,

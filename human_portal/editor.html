@@ -154,6 +154,8 @@
     <script>
         const urlParams = new URLSearchParams(window.location.search);
         const type = urlParams.get('type');
+        // 형식 스키마 버전 — 변경 시 saved 자동 무효화하여 새 매핑/처리가 즉시 반영
+        const APP_FORMAT_VERSION = 3;
         let currentUser = null;
         let allSheetsData = {};         // 모든 시트 데이터: { sheetName: jsonRows[][] }
         let sheetOrder = [];            // 시트 표시 순서 (workbook 원본 순서)
@@ -424,7 +426,12 @@
             if (saved) {
                 try {
                     const parsed = JSON.parse(saved);
-                    if (parsed.sheets && Object.keys(parsed.sheets).length > 0) {
+                    // 스키마 버전이 낮으면 saved 무시 → 원본 자동 재fetch (새 매핑/처리 즉시 반영)
+                    const savedVer = parsed.formatVersion || 0;
+                    if (savedVer < APP_FORMAT_VERSION) {
+                        localStorage.removeItem('data_' + type);
+                        // saved 무시하고 아래 원본 fetch로 진행
+                    } else if (parsed.sheets && Object.keys(parsed.sheets).length > 0) {
                         allSheetsData = parsed.sheets;
                         sheetOrder = parsed.sheetOrder && parsed.sheetOrder.length ? parsed.sheetOrder : Object.keys(parsed.sheets);
                         summarySheetName = sheetOrder[0] || null;
@@ -434,8 +441,7 @@
                         buildSheetTabs();
                         switchSheet(activeSheet);
                         return;
-                    }
-                    if (parsed.headers && parsed.data) {
+                    } else if (parsed.headers && parsed.data) {
                         const tag = parsed.fileName ? `📁 ${parsed.fileName} (${parsed.uploadedAt || '저장됨'})` : '저장된 데이터';
                         fileInfo.textContent = tag;
                         renderEditor(parsed.headers, parsed.data);
@@ -971,6 +977,7 @@
                     const activeJson = allSheetsData[activeSheet] || [];
                     const headerIdx = detectHeaderRow(activeJson, activeSheet);
                     localStorage.setItem('data_' + type, JSON.stringify({
+                        formatVersion: APP_FORMAT_VERSION,
                         headers: activeJson[headerIdx] || [],
                         data: activeJson.slice(headerIdx + 1),
                         sheets: allSheetsData,
@@ -1023,6 +1030,7 @@
             try { prev = JSON.parse(localStorage.getItem('data_' + type)) || {}; } catch(e) {}
 
             localStorage.setItem('data_' + type, JSON.stringify({
+                formatVersion: APP_FORMAT_VERSION,
                 headers,
                 data,
                 sheets: prev.sheets,
