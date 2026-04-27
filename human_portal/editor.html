@@ -20,6 +20,15 @@
         thead tr.real-header { /* 진짜 헤더 강조 — 기존 th 스타일 그대로 */ }
         /* 합계 행 강조 */
         tbody tr.total-emphasis td { background: #fff3e0 !important; font-weight: 700; color: #d35400; border-top: 2px solid #e67e22; border-bottom: 2px solid #e67e22; }
+
+        /* 페이지네이션 */
+        .pagination { display: flex; align-items: center; gap: 6px; padding: 6px 10px; background: #ecf0f1; border-radius: 4px; border: 1px solid #bdc3c7; margin-bottom: 6px; flex-shrink: 0; flex-wrap: wrap; }
+        .pagination .pg-info { font-size: 0.75rem; color: #2c3e50; font-weight: 600; margin-right: 8px; }
+        .pagination button { padding: 4px 10px; font-size: 0.75rem; border: 1px solid #95a5a6; background: white; border-radius: 3px; cursor: pointer; min-width: 32px; }
+        .pagination button:hover:not(:disabled) { background: #34495e; color: white; border-color: #2c3e50; }
+        .pagination button:disabled { opacity: 0.4; cursor: not-allowed; }
+        .pagination input[type=number] { width: 60px; padding: 4px 6px; font-size: 0.75rem; border: 1px solid #95a5a6; border-radius: 3px; text-align: center; }
+        .pagination select { padding: 4px 8px; font-size: 0.75rem; border: 1px solid #95a5a6; border-radius: 3px; background: white; }
         th { background: #34495e; color: white; position: sticky; top: 0; padding: 10px 10px; font-weight: 700; font-size: 0.78rem; border: 1px solid #2c3e50; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; z-index: 200; }
         /* 헤더 빈 셀은 빈 칸 그대로 (엑셀 서식과 동일) */
         th.empty-header { background: white; color: #ccc; border-color: #dee2e6; }
@@ -124,6 +133,8 @@
         
         <div class="sheet-tabs" id="sheet-tabs" style="display:none;"></div>
 
+        <div class="pagination" id="pagination" style="display:none;"></div>
+
         <div class="cell-viewer" id="cell-viewer">
             <div class="cell-viewer-row">
                 <div class="cell-viewer-label">📍 셀 내용</div>
@@ -167,6 +178,10 @@
         const type = urlParams.get('type');
         // 형식 스키마 버전 — 변경 시 saved 자동 무효화하여 새 매핑/처리가 즉시 반영
         const APP_FORMAT_VERSION = 5;
+        // 페이지네이션 — 시트가 PAGE_THRESHOLD 행 초과 시 활성화
+        const PAGE_THRESHOLD = 500;
+        let currentPage = 1;
+        let currentPageSize = 200;
         let currentUser = null;
         let allSheetsData = {};         // 모든 시트 데이터: { sheetName: jsonRows[][] }
         let allSheetsMerges = {};       // 시트별 병합 정보: { sheetName: [{s:{r,c}, e:{r,c}}, ...] }
@@ -334,6 +349,7 @@
         function switchSheet(name) {
             if (!allSheetsData[name]) return;
             activeSheet = name;
+            currentPage = 1;  // 시트 전환 시 페이지 초기화
             const json = allSheetsData[name];
             const headerIdx = detectHeaderRow(json, name);
             const fmId = (type.match(/_(f[1-7])$/) || [])[1] || '';
@@ -346,9 +362,54 @@
             window._currentHeaderIdx = headerIdx;
             window._currentStickyN = stickyN;
             window._currentJsonRaw = json;
+            window._currentFullData = data;  // 페이지네이션을 위한 전체 데이터 보존
             buildSheetTabs();
             renderEditor(headers, data);
             document.getElementById('status-msg').textContent = `시트: ${name} (${data.length}행, 헤더 ${headerIdx + 1}행, sticky ${stickyN}행, 병합 ${currentMerges.length}개)`;
+        }
+
+        function buildPagination(totalRows) {
+            const el = document.getElementById('pagination');
+            if (!el) return;
+            if (totalRows <= PAGE_THRESHOLD) { el.style.display = 'none'; return; }
+            const totalPages = Math.max(1, Math.ceil(totalRows / currentPageSize));
+            if (currentPage > totalPages) currentPage = totalPages;
+            const start = (currentPage - 1) * currentPageSize + 1;
+            const end = Math.min(currentPage * currentPageSize, totalRows);
+            el.style.display = 'flex';
+            el.innerHTML = `
+                <span class="pg-info">📄 ${start.toLocaleString()}~${end.toLocaleString()} / ${totalRows.toLocaleString()}행 (${currentPage}/${totalPages})</span>
+                <button onclick="goToPage(1)" ${currentPage===1?'disabled':''}>« 처음</button>
+                <button onclick="goToPage(currentPage - 1)" ${currentPage===1?'disabled':''}>‹ 이전</button>
+                <input type="number" min="1" max="${totalPages}" value="${currentPage}" onchange="goToPage(parseInt(this.value)||1)" style="margin: 0 4px;">
+                <button onclick="goToPage(currentPage + 1)" ${currentPage===totalPages?'disabled':''}>다음 ›</button>
+                <button onclick="goToPage(${totalPages})" ${currentPage===totalPages?'disabled':''}>끝 »</button>
+                <span style="margin-left: 12px; font-size: 0.75rem; color: #555;">페이지당:</span>
+                <select onchange="changePageSize(parseInt(this.value))">
+                    <option value="100" ${currentPageSize===100?'selected':''}>100</option>
+                    <option value="200" ${currentPageSize===200?'selected':''}>200</option>
+                    <option value="500" ${currentPageSize===500?'selected':''}>500</option>
+                    <option value="1000" ${currentPageSize===1000?'selected':''}>1000</option>
+                </select>
+            `;
+        }
+
+        function goToPage(p) {
+            const totalRows = (window._currentFullData || []).length;
+            const totalPages = Math.max(1, Math.ceil(totalRows / currentPageSize));
+            currentPage = Math.max(1, Math.min(totalPages, p));
+            // 현재 시트를 다시 렌더링 (페이지만 바뀜)
+            const headers = (window._currentJsonRaw || [])[window._currentHeaderIdx] || [];
+            renderEditor(headers, window._currentFullData || []);
+            // 표 영역 스크롤 위로
+            const wrap = document.querySelector('.table-wrapper');
+            if (wrap) wrap.scrollTop = 0;
+        }
+
+        function changePageSize(sz) {
+            currentPageSize = sz;
+            currentPage = 1;
+            goToPage(1);
         }
         
         document.addEventListener('DOMContentLoaded', () => {
@@ -774,7 +835,18 @@
                 }
             }
             
-            const displayData = processedData;
+            // 페이지네이션 (큰 시트의 DOM 폭주 방지) — 정렬 후 슬라이스
+            const totalDataRows = processedData.length;
+            const usePagination = isRawForm && totalDataRows > PAGE_THRESHOLD;
+            buildPagination(totalDataRows);
+            let displayData;
+            let pageStartRIdx = 0;
+            if (usePagination) {
+                pageStartRIdx = (currentPage - 1) * currentPageSize;
+                displayData = processedData.slice(pageStartRIdx, pageStartRIdx + currentPageSize);
+            } else {
+                displayData = processedData;
+            }
             const colWidth = 100 / maxCols;
             let html = '<table style="margin-top:0;"><thead>';
 
@@ -1038,7 +1110,7 @@
                 }
 
                 let rowClass = `month-bg-${monthIndex}`;
-                if (totalRowSet.has(rIdx)) rowClass += ' total-emphasis';
+                if (totalRowSet.has(pageStartRIdx + rIdx)) rowClass += ' total-emphasis';
                 lastMonth = currentMonth;
                 lastWeek = currentWeek;
                 
