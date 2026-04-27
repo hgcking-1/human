@@ -24,6 +24,9 @@
         [contenteditable="true"]:empty { background: white; }
         [contenteditable="true"]:empty:focus { background: white; }
         td.empty-cell { background: white !important; }
+        /* 병합된 셀 (anchor): 약간의 배경 + 가운데 정렬로 그룹 부제 등을 명확히 */
+        td.merged-cell { background: #fdf6e3; font-weight: 600; text-align: center; color: #5d4037; }
+        td.merged-cell.empty-cell { background: white !important; }
         [contenteditable="true"]:focus {
             background: #fff;
             box-shadow: 0 6px 18px rgba(52,152,219,0.35), inset 0 0 0 2px #3498db;
@@ -155,9 +158,11 @@
         const urlParams = new URLSearchParams(window.location.search);
         const type = urlParams.get('type');
         // 형식 스키마 버전 — 변경 시 saved 자동 무효화하여 새 매핑/처리가 즉시 반영
-        const APP_FORMAT_VERSION = 3;
+        const APP_FORMAT_VERSION = 4;
         let currentUser = null;
         let allSheetsData = {};         // 모든 시트 데이터: { sheetName: jsonRows[][] }
+        let allSheetsMerges = {};       // 시트별 병합 정보: { sheetName: [{s:{r,c}, e:{r,c}}, ...] }
+        let currentMerges = [];         // 현재 활성 시트의 병합 정보
         let sheetOrder = [];            // 시트 표시 순서 (workbook 원본 순서)
         let activeSheet = null;         // 현재 표시 중인 시트 이름
         let summarySheetName = null;    // 요약 시트 이름 (보통 첫 시트)
@@ -283,9 +288,12 @@
             const headerIdx = detectHeaderRow(json, name);
             const headers = json[headerIdx] || [];
             const data = json.slice(headerIdx + 1);
+            // 현재 시트의 병합 정보를 활성화 (renderEditor에서 사용)
+            currentMerges = allSheetsMerges[name] || [];
+            window._currentHeaderIdx = headerIdx;
             buildSheetTabs();
             renderEditor(headers, data);
-            document.getElementById('status-msg').textContent = `시트: ${name} (${data.length}행, 헤더 ${headerIdx + 1}행)`;
+            document.getElementById('status-msg').textContent = `시트: ${name} (${data.length}행, 헤더 ${headerIdx + 1}행, 병합 ${currentMerges.length}개)`;
         }
         
         document.addEventListener('DOMContentLoaded', () => {
@@ -433,6 +441,7 @@
                         // saved 무시하고 아래 원본 fetch로 진행
                     } else if (parsed.sheets && Object.keys(parsed.sheets).length > 0) {
                         allSheetsData = parsed.sheets;
+                        allSheetsMerges = parsed.sheetMerges || {};
                         sheetOrder = parsed.sheetOrder && parsed.sheetOrder.length ? parsed.sheetOrder : Object.keys(parsed.sheets);
                         summarySheetName = sheetOrder[0] || null;
                         activeSheet = summarySheetName;
@@ -522,11 +531,16 @@
         // workbook → 모든 시트 보존 + 첫 시트 활성화 + 시트 탭 그리기
         function ingestWorkbook(workbook) {
             allSheetsData = {};
+            allSheetsMerges = {};
             sheetOrder = [];
             workbook.SheetNames.forEach(sheetName => {
                 const ws = workbook.Sheets[sheetName];
                 if (!ws) return;
                 allSheetsData[sheetName] = sheetWithFormulasToArray(ws);
+                allSheetsMerges[sheetName] = (ws['!merges'] || []).map(m => ({
+                    s: { r: m.s.r, c: m.s.c },
+                    e: { r: m.e.r, c: m.e.c }
+                }));
                 sheetOrder.push(sheetName);
             });
             summarySheetName = sheetOrder[0] || null;
@@ -678,10 +692,28 @@
             const displayData = processedData; 
             const colWidth = 100 / maxCols;
             let html = '<table style="margin-top:0;"><thead><tr>';
-            displayHeaders.forEach(h => {
+            // 헤더 행의 병합 처리 — anchor 셀에 colspan 부여, 영역 내부 셀은 skip
+            const headerExcelRow = (typeof window._currentHeaderIdx === 'number') ? window._currentHeaderIdx : 0;
+            const headerSkipCols = new Set();
+            const headerAnchorAt = {};
+            (currentMerges || []).forEach(m => {
+                if (m.s.r <= headerExcelRow && headerExcelRow <= m.e.r) {
+                    for (let c = m.s.c; c <= m.e.c; c++) {
+                        if (headerExcelRow === m.s.r && c === m.s.c) {
+                            headerAnchorAt[c] = { colspan: m.e.c - m.s.c + 1 };
+                        } else {
+                            headerSkipCols.add(c);
+                        }
+                    }
+                }
+            });
+            displayHeaders.forEach((h, idx) => {
+                if (headerSkipCols.has(idx)) return;
                 const txt = (h === null || h === undefined) ? '' : h.toString();
                 const cls = txt.trim() === '' ? 'empty-header' : '';
-                html += `<th class="${cls}" style="width:${colWidth}%">${txt}</th>`;
+                const span = headerAnchorAt[idx];
+                const colspanAttr = span ? ` colspan="${span.colspan}"` : '';
+                html += `<th class="${cls}" style="width:${colWidth}%"${colspanAttr}>${txt}</th>`;
             });
             html += '</tr></thead><tbody>';
             
@@ -815,8 +847,28 @@
                 lastMonth = currentMonth;
                 lastWeek = currentWeek;
                 
+                // 이 데이터 행의 엑셀 row index (0-based)
+                const excelRowIdx = (typeof window._currentHeaderIdx === 'number' ? window._currentHeaderIdx : 0) + 1 + rIdx;
+                const rowSkipCols = new Set();
+                const rowAnchorAt = {};
+                (currentMerges || []).forEach(m => {
+                    if (m.s.r <= excelRowIdx && excelRowIdx <= m.e.r) {
+                        for (let c = m.s.c; c <= m.e.c; c++) {
+                            if (excelRowIdx === m.s.r && c === m.s.c) {
+                                rowAnchorAt[c] = {
+                                    colspan: m.e.c - m.s.c + 1,
+                                    rowspan: m.e.r - m.s.r + 1
+                                };
+                            } else {
+                                rowSkipCols.add(c);
+                            }
+                        }
+                    }
+                });
+
                 html += `<tr class="${rowClass}">`;
                 for (let i = 0; i < maxCols; i++) {
+                    if (rowSkipCols.has(i)) continue;  // 다른 anchor의 병합 영역 안 → 셀 출력 안 함
                     let cell = row[i] !== undefined ? row[i] : '';
                     // 함수 객체면 값/함수식 분리
                     let formulaText = null;
@@ -864,13 +916,19 @@
                     if (cell !== '' && !isNum) {
                         linkSheet = resolveSheetLink(cell);
                     }
+                    // 병합 anchor 셀: colspan/rowspan 부여
+                    const span = rowAnchorAt[i];
+                    const colspanAttr = span && span.colspan > 1 ? ` colspan="${span.colspan}"` : '';
+                    const rowspanAttr = span && span.rowspan > 1 ? ` rowspan="${span.rowspan}"` : '';
+                    const mergeCls = span ? ' merged-cell' : '';
+
                     if (linkSheet) {
                         const safe = linkSheet.replace(/'/g, "\\'");
-                        html += `<td class="company-link${formulaCls}${emptyCls}" title="${linkSheet} 시트로 이동 — ${titleAttr}" data-row="${rIdx}" data-col="${i}"${formulaAttr} onclick="switchSheet('${safe}')">${cellContent}</td>`;
+                        html += `<td class="company-link${formulaCls}${emptyCls}${mergeCls}" title="${linkSheet} 시트로 이동 — ${titleAttr}" data-row="${rIdx}" data-col="${i}"${formulaAttr}${colspanAttr}${rowspanAttr} onclick="switchSheet('${safe}')">${cellContent}</td>`;
                     } else if (isWorkerCompany && i === 1 && cell !== '' && !isRawForm) {
-                        html += `<td class="company-link${formulaCls}${emptyCls}" title="${titleAttr}" data-row="${rIdx}" data-col="${i}"${formulaAttr} onclick="showCompanyDetail('${cell}')">${cell}</td>`;
+                        html += `<td class="company-link${formulaCls}${emptyCls}${mergeCls}" title="${titleAttr}" data-row="${rIdx}" data-col="${i}"${formulaAttr}${colspanAttr}${rowspanAttr} onclick="showCompanyDetail('${cell}')">${cell}</td>`;
                     } else {
-                        html += `<td contenteditable="true" class="${isNum ? 'num-cell' : ''}${formulaCls}${emptyCls}" data-row="${rIdx}" data-col="${i}" title="${titleAttr}"${formulaAttr}>${cellContent}</td>`;
+                        html += `<td contenteditable="true" class="${isNum ? 'num-cell' : ''}${formulaCls}${emptyCls}${mergeCls}" data-row="${rIdx}" data-col="${i}" title="${titleAttr}"${formulaAttr}${colspanAttr}${rowspanAttr}>${cellContent}</td>`;
                     }
                 }
                 html += '</tr>';
@@ -981,6 +1039,7 @@
                         headers: activeJson[headerIdx] || [],
                         data: activeJson.slice(headerIdx + 1),
                         sheets: allSheetsData,
+                        sheetMerges: allSheetsMerges,
                         sheetOrder: sheetOrder,
                         fileName: file.name,
                         uploadedAt: new Date().toLocaleString('ko-KR')
@@ -1034,6 +1093,7 @@
                 headers,
                 data,
                 sheets: prev.sheets,
+                sheetMerges: prev.sheetMerges,
                 fileName: prev.fileName,
                 uploadedAt: prev.uploadedAt,
                 editedAt: new Date().toLocaleString('ko-KR')

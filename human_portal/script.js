@@ -79,8 +79,14 @@ function quickUpload(event, type) {
         try {
             const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array', dense: true });
             const sheets = {};
+            const sheetMerges = {};
             wb.SheetNames.forEach(s => {
-                sheets[s] = XLSX.utils.sheet_to_json(wb.Sheets[s], { header: 1 });
+                const ws = wb.Sheets[s];
+                sheets[s] = XLSX.utils.sheet_to_json(ws, { header: 1 });
+                sheetMerges[s] = (ws['!merges'] || []).map(m => ({
+                    s: { r: m.s.r, c: m.s.c },
+                    e: { r: m.e.r, c: m.e.c }
+                }));
             });
             const ws = wb.Sheets[wb.SheetNames[0]];
             const json = XLSX.utils.sheet_to_json(ws, { header: 1 });
@@ -98,10 +104,11 @@ function quickUpload(event, type) {
             // 엑셀 원본 그대로: 빈 행도 보존 (사용자 요청)
             const data = json.slice(headerIdx + 1);
             const payload = {
-                formatVersion: 3,
+                formatVersion: 4,
                 headers,
                 data,
                 sheets,
+                sheetMerges,
                 fileName: file.name,
                 uploadedAt: new Date().toLocaleString('ko-KR'),
                 uploadedBy: (JSON.parse(localStorage.getItem('userSession')) || {}).name || '관리자'
