@@ -166,6 +166,13 @@
             }
         };
 
+        // 시트별 헤더 행 강제 매핑 (1-based). 자동 탐지보다 우선.
+        const SHEET_HEADER_ROW = {
+            'f1': {
+                '2026년 4월 주차': 2
+            }
+        };
+
         function autoMapSheet(cellText) {
             if (!cellText) return null;
             const t = cellText.toString().trim();
@@ -182,8 +189,12 @@
             return (auto && allSheetsData[auto]) ? auto : null;
         }
 
-        function detectHeaderRow(json) {
-            // 4셀 이상 채워진 첫 행을 헤더로 간주 (요약/상세 시트 모두 자동 처리)
+        function detectHeaderRow(json, sheetName) {
+            // 시트별 명시 매핑 우선 (1-based → 0-based)
+            const fmId = (type.match(/_(f[1-7])$/) || [])[1] || '';
+            const explicit = (SHEET_HEADER_ROW[fmId] || {})[sheetName];
+            if (explicit && explicit > 0) return explicit - 1;
+            // 자동: 4셀 이상 채워진 첫 행
             const cellNotEmpty = c => {
                 if (c === null || c === undefined) return false;
                 const v = (c && typeof c === 'object' && c.isFormula) ? c.value : c;
@@ -215,12 +226,12 @@
             if (!allSheetsData[name]) return;
             activeSheet = name;
             const json = allSheetsData[name];
-            const headerIdx = detectHeaderRow(json);
+            const headerIdx = detectHeaderRow(json, name);
             const headers = json[headerIdx] || [];
             const data = json.slice(headerIdx + 1);
             buildSheetTabs();
             renderEditor(headers, data);
-            document.getElementById('status-msg').textContent = `시트: ${name} (${data.length}행)`;
+            document.getElementById('status-msg').textContent = `시트: ${name} (${data.length}행, 헤더 ${headerIdx + 1}행)`;
         }
         
         document.addEventListener('DOMContentLoaded', () => {
@@ -848,7 +859,7 @@
                     ingestWorkbook(workbook);
                     // 자동 저장 (모든 시트 보존)
                     const activeJson = allSheetsData[activeSheet] || [];
-                    const headerIdx = detectHeaderRow(activeJson);
+                    const headerIdx = detectHeaderRow(activeJson, activeSheet);
                     localStorage.setItem('data_' + type, JSON.stringify({
                         headers: activeJson[headerIdx] || [],
                         data: activeJson.slice(headerIdx + 1),
