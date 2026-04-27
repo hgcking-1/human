@@ -441,22 +441,46 @@
         }
 
         // 시트의 셀에서 값 + 함수식을 함께 추출 (dense 모드)
+        // 시트의 dimension(!ref)을 기반으로 모든 row를 마지막 컬럼까지 채워서
+        // 빈 셀이 좌측으로 밀려 표시되는 현상 방지 (예: L2=추가금액, M2=빈, N2=지급)
         // 함수가 있으면 { value, formula, isFormula:true } 객체, 아니면 원시값
         function sheetWithFormulasToArray(ws) {
-            if (!ws || !ws['!data']) {
-                return ws ? XLSX.utils.sheet_to_json(ws, { header: 1 }) : [];
+            if (!ws) return [];
+            if (!ws['!data']) {
+                return XLSX.utils.sheet_to_json(ws, { header: 1 });
             }
-            return ws['!data'].map(row => {
-                if (!row) return [];
-                return row.map(cell => {
-                    if (!cell) return '';
-                    const v = (cell.v !== undefined) ? cell.v : '';
-                    if (cell.f) {
-                        return { value: v, formula: cell.f, isFormula: true };
-                    }
-                    return v;
-                });
-            });
+            const ref = ws['!ref'];
+            let endRow = ws['!data'].length - 1;
+            let endCol = 0;
+            if (ref && XLSX.utils && XLSX.utils.decode_range) {
+                try {
+                    const range = XLSX.utils.decode_range(ref);
+                    endRow = Math.max(endRow, range.e.r);
+                    endCol = range.e.c;
+                } catch (e) {}
+            }
+            // 데이터 자체에서도 가장 긴 row를 기준으로 endCol 보강
+            for (let r = 0; r < ws['!data'].length; r++) {
+                if (ws['!data'][r]) endCol = Math.max(endCol, ws['!data'][r].length - 1);
+            }
+
+            const extractCell = (cell) => {
+                if (!cell) return '';
+                const v = (cell.v !== undefined) ? cell.v : '';
+                if (cell.f) return { value: v, formula: cell.f, isFormula: true };
+                return v;
+            };
+
+            const result = [];
+            for (let r = 0; r <= endRow; r++) {
+                const row = ws['!data'][r] || [];
+                const newRow = [];
+                for (let c = 0; c <= endCol; c++) {
+                    newRow.push(extractCell(row[c]));
+                }
+                result.push(newRow);
+            }
+            return result;
         }
 
         // 셀이 함수 객체인지 판별하여 표시값/함수식 추출
