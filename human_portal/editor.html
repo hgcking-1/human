@@ -31,11 +31,20 @@
         td.company-link:hover, td:hover { background: #eaf4fc; }
 
         /* 셀 뷰어 (수식 입력줄 스타일) */
-        .cell-viewer { display: flex; align-items: stretch; gap: 0; margin-bottom: 6px; flex-shrink: 0; border-radius: 4px; overflow: hidden; border: 1px solid #f1c40f; }
+        .cell-viewer { display: flex; flex-direction: column; gap: 4px; margin-bottom: 6px; flex-shrink: 0; }
+        .cell-viewer-row { display: flex; align-items: stretch; gap: 0; border-radius: 4px; overflow: hidden; border: 1px solid #f1c40f; }
+        .cell-viewer-row.formula-row { border-color: #5dade2; }
         .cell-viewer-label { display: flex; align-items: center; padding: 6px 10px; background: #f9e79f; color: #7d6608; font-size: 0.75rem; font-weight: 700; white-space: nowrap; }
+        .formula-row .cell-viewer-label { background: #aed6f1; color: #1b4f72; }
         .cell-viewer-coord { display: flex; align-items: center; padding: 6px 12px; background: white; border-left: 1px solid #f1c40f; border-right: 1px solid #f1c40f; font-family: 'Roboto Mono', monospace; color: #2c3e50; font-size: 0.78rem; min-width: 70px; font-weight: 600; }
         .cell-viewer-content { flex: 1; padding: 6px 12px; background: #fffdf2; font-size: 0.85rem; color: #2c3e50; word-break: break-all; white-space: pre-wrap; overflow-y: auto; max-height: 90px; line-height: 1.5; }
+        .cell-viewer-content.formula { background: #ebf5fb; font-family: 'Roboto Mono', monospace; color: #1b4f72; font-size: 0.78rem; }
         .cell-viewer-content:empty::before { content: '셀을 클릭하면 전체 내용이 여기에 표시됩니다.'; color: #aaa; font-style: italic; }
+
+        /* 함수가 있는 셀: 좌상단에 파란 삼각 마커 */
+        td.formula-cell { background: linear-gradient(135deg, #d6eaf8 0%, #d6eaf8 8px, #fffde7 8px) !important; }
+        td.formula-cell.num-cell { background: linear-gradient(135deg, #d6eaf8 0%, #d6eaf8 8px, #fffde7 8px) !important; }
+        td.formula-cell:focus { background: linear-gradient(135deg, #aed6f1 0%, #aed6f1 8px, #ffffff 8px) !important; }
         
         .btn-group { display: flex; gap: 8px; align-items: center; }
         .upload-label { padding: 0.5rem 0.8rem; background: #27ae60; color: white; border-radius: 4px; cursor: pointer; font-size: 0.8rem; display: flex; align-items: center; gap: 5px; font-weight: 500; }
@@ -98,9 +107,15 @@
         <div class="sheet-tabs" id="sheet-tabs" style="display:none;"></div>
 
         <div class="cell-viewer" id="cell-viewer">
-            <div class="cell-viewer-label">📍 셀 내용</div>
-            <div class="cell-viewer-coord" id="cell-viewer-coord">-</div>
-            <div class="cell-viewer-content" id="cell-viewer-content"></div>
+            <div class="cell-viewer-row">
+                <div class="cell-viewer-label">📍 셀 내용</div>
+                <div class="cell-viewer-coord" id="cell-viewer-coord">-</div>
+                <div class="cell-viewer-content" id="cell-viewer-content"></div>
+            </div>
+            <div class="cell-viewer-row formula-row" id="cell-viewer-formula-row" style="display:none;">
+                <div class="cell-viewer-label">📐 엑셀 함수식</div>
+                <div class="cell-viewer-content formula" id="cell-viewer-formula"></div>
+            </div>
         </div>
 
         <div class="table-wrapper" id="editor-content">
@@ -138,15 +153,16 @@
         let activeSheet = null;         // 현재 표시 중인 시트 이름
         let summarySheetName = null;    // 요약 시트 이름 (보통 첫 시트)
 
-        // 양식별 요약 시트의 셀 → 상세 시트 매핑
-        // 사용자가 명시한 매핑(우선) + 자동 매핑(시트명이 셀 텍스트와 일치/포함)이 fallback
+        // 양식별 시트 간 매핑
+        // 다보스병원의 함수는 '다보스병원' 시트와 연동 — '2026년 4월 주차'는 별도 시트
+        // 자동 매핑(시트명이 셀 텍스트와 일치/포함)이 함께 작동
         const SUMMARY_LINKS = {
             'f1': {
                 '신촌연세의료원': '신촌',
                 '동문회관': '동문',
                 '용인동백세브란스': '용인',
                 '강남세브란스': '강남',
-                '다보스병원': '2026년 4월 주차'
+                '다보스병원': '다보스병원'
             }
         };
 
@@ -168,8 +184,13 @@
 
         function detectHeaderRow(json) {
             // 4셀 이상 채워진 첫 행을 헤더로 간주 (요약/상세 시트 모두 자동 처리)
+            const cellNotEmpty = c => {
+                if (c === null || c === undefined) return false;
+                const v = (c && typeof c === 'object' && c.isFormula) ? c.value : c;
+                return v !== null && v !== undefined && v.toString().trim() !== '';
+            };
             for (let i = 0; i < Math.min(8, json.length); i++) {
-                if (json[i] && json[i].filter(c => c !== null && c !== undefined && c.toString().trim() !== '').length >= 4) {
+                if (json[i] && json[i].filter(cellNotEmpty).length >= 4) {
                     return i;
                 }
             }
@@ -215,7 +236,7 @@
             }
             loadData();
 
-            // 셀 뷰어: 셀에 포커스/클릭/입력하면 상단에 전체 내용 표시
+            // 셀 뷰어: 셀에 포커스/클릭/입력하면 상단에 전체 내용 + 함수식 표시
             const editorContent = document.getElementById('editor-content');
             const updateCellViewer = (td) => {
                 if (!td || td.tagName !== 'TD') return;
@@ -223,6 +244,16 @@
                 const c = parseInt(td.dataset.col || '0');
                 document.getElementById('cell-viewer-coord').textContent = colIndexToLetter(c) + (r + 1);
                 document.getElementById('cell-viewer-content').textContent = td.textContent || '';
+                const formula = td.dataset.formula || '';
+                const fRow = document.getElementById('cell-viewer-formula-row');
+                const fEl = document.getElementById('cell-viewer-formula');
+                if (formula) {
+                    fEl.textContent = '=' + formula;
+                    fRow.style.display = 'flex';
+                } else {
+                    fEl.textContent = '';
+                    fRow.style.display = 'none';
+                }
             };
             editorContent.addEventListener('focusin', e => updateCellViewer(e.target));
             editorContent.addEventListener('click', e => updateCellViewer(e.target));
@@ -368,6 +399,33 @@
             }
         }
 
+        // 시트의 셀에서 값 + 함수식을 함께 추출 (dense 모드)
+        // 함수가 있으면 { value, formula, isFormula:true } 객체, 아니면 원시값
+        function sheetWithFormulasToArray(ws) {
+            if (!ws || !ws['!data']) {
+                return ws ? XLSX.utils.sheet_to_json(ws, { header: 1 }) : [];
+            }
+            return ws['!data'].map(row => {
+                if (!row) return [];
+                return row.map(cell => {
+                    if (!cell) return '';
+                    const v = (cell.v !== undefined) ? cell.v : '';
+                    if (cell.f) {
+                        return { value: v, formula: cell.f, isFormula: true };
+                    }
+                    return v;
+                });
+            });
+        }
+
+        // 셀이 함수 객체인지 판별하여 표시값/함수식 추출
+        function unwrapCell(c) {
+            if (c && typeof c === 'object' && c.isFormula) {
+                return { value: c.value, formula: c.formula };
+            }
+            return { value: c, formula: null };
+        }
+
         // workbook → 모든 시트 보존 + 첫 시트 활성화 + 시트 탭 그리기
         function ingestWorkbook(workbook) {
             allSheetsData = {};
@@ -375,7 +433,7 @@
             workbook.SheetNames.forEach(sheetName => {
                 const ws = workbook.Sheets[sheetName];
                 if (!ws) return;
-                allSheetsData[sheetName] = XLSX.utils.sheet_to_json(ws, { header: 1 });
+                allSheetsData[sheetName] = sheetWithFormulasToArray(ws);
                 sheetOrder.push(sheetName);
             });
             summarySheetName = sheetOrder[0] || null;
@@ -645,6 +703,12 @@
                 html += `<tr class="${rowClass}">`;
                 for (let i = 0; i < maxCols; i++) {
                     let cell = row[i] !== undefined ? row[i] : '';
+                    // 함수 객체면 값/함수식 분리
+                    let formulaText = null;
+                    if (cell && typeof cell === 'object' && cell.isFormula) {
+                        formulaText = cell.formula || '';
+                        cell = (cell.value !== undefined && cell.value !== null) ? cell.value : '';
+                    }
                     if (i === 0 && typeof cell === 'number' && cell > 40000) {
                         const date = new Date((cell - 25569) * 86400 * 1000);
                         cell = date.toISOString().split('T')[0];
@@ -660,22 +724,26 @@
                     else isNum = (i >= 2 && i <= 4);
                     
                     const cellContent = isNum && typeof cell === 'number' ? cell.toLocaleString() : cell;
-                    // 셀 전체 원본 값 — title(hover 툴팁) + 셀 뷰어용
-                    const titleAttr = (cell === null || cell === undefined ? '' : cell.toString())
+                    const escAttr = v => (v === null || v === undefined ? '' : v.toString())
                         .replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                    const titleAttr = formulaText
+                        ? `📐 =${escAttr(formulaText)}\n→ ${escAttr(cell)}`
+                        : escAttr(cell);
+                    const formulaAttr = formulaText ? ` data-formula="${escAttr(formulaText)}"` : '';
+                    const formulaCls = formulaText ? ' formula-cell' : '';
 
-                    // 요약 시트의 텍스트 셀 → 매핑된 상세 시트로 점프 (사용자 명시 매핑 + 자동 매핑)
+                    // 모든 시트에서 매핑된 텍스트 셀 → 상세 시트로 점프 (양방향 연동)
                     let linkSheet = null;
-                    if (activeSheet === summarySheetName && cell !== '' && !isNum) {
+                    if (cell !== '' && !isNum) {
                         linkSheet = resolveSheetLink(cell);
                     }
                     if (linkSheet) {
                         const safe = linkSheet.replace(/'/g, "\\'");
-                        html += `<td class="company-link" title="${linkSheet} 시트로 이동 — ${titleAttr}" data-row="${rIdx}" data-col="${i}" onclick="switchSheet('${safe}')">${cellContent}</td>`;
+                        html += `<td class="company-link${formulaCls}" title="${linkSheet} 시트로 이동 — ${titleAttr}" data-row="${rIdx}" data-col="${i}"${formulaAttr} onclick="switchSheet('${safe}')">${cellContent}</td>`;
                     } else if (isWorkerCompany && i === 1 && cell !== '' && !isRawForm) {
-                        html += `<td class="company-link" title="${titleAttr}" data-row="${rIdx}" data-col="${i}" onclick="showCompanyDetail('${cell}')">${cell}</td>`;
+                        html += `<td class="company-link${formulaCls}" title="${titleAttr}" data-row="${rIdx}" data-col="${i}"${formulaAttr} onclick="showCompanyDetail('${cell}')">${cell}</td>`;
                     } else {
-                        html += `<td contenteditable="true" class="${isNum ? 'num-cell' : ''}" data-row="${rIdx}" data-col="${i}" title="${titleAttr}">${cellContent}</td>`;
+                        html += `<td contenteditable="true" class="${isNum ? 'num-cell' : ''}${formulaCls}" data-row="${rIdx}" data-col="${i}" title="${titleAttr}"${formulaAttr}>${cellContent}</td>`;
                     }
                 }
                 html += '</tr>';
