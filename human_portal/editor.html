@@ -17,6 +17,10 @@
         tr:nth-child(even) { background-color: #f8f9fa; }
         tr:hover { background-color: #edf2f7; }
         [contenteditable="true"] { background: #fffde7; outline: none; transition: background 0.2s; z-index: 1; }
+        /* 빈 셀은 빈 칸 그대로 (엑셀 서식과 동일) — 노란 배경 제거 */
+        [contenteditable="true"]:empty { background: white; }
+        [contenteditable="true"]:empty:focus { background: white; }
+        td.empty-cell { background: white !important; }
         [contenteditable="true"]:focus {
             background: #fff;
             box-shadow: 0 6px 18px rgba(52,152,219,0.35), inset 0 0 0 2px #3498db;
@@ -766,14 +770,20 @@
                     else if (isWorkerCash) isNum = (i === 4 || i === 5 || i === 6);
                     else isNum = (i >= 2 && i <= 4);
                     
-                    const cellContent = isNum && typeof cell === 'number' ? cell.toLocaleString() : cell;
+                    // 빈 셀 판정 (엑셀 서식과 동일하게 빈 칸 그대로 보존)
+                    const isEmptyCell = (cell === null || cell === undefined ||
+                        (typeof cell === 'string' && cell.trim() === ''));
+                    const cellContent = isEmptyCell ? '' :
+                        (isNum && typeof cell === 'number' ? cell.toLocaleString() : cell);
                     const escAttr = v => (v === null || v === undefined ? '' : v.toString())
                         .replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
                     const titleAttr = formulaText
                         ? `📐 =${escAttr(formulaText)}\n→ ${escAttr(cell)}`
                         : escAttr(cell);
                     const formulaAttr = formulaText ? ` data-formula="${escAttr(formulaText)}"` : '';
-                    const formulaCls = formulaText ? ' formula-cell' : '';
+                    // 빈 값을 반환하는 함수 셀은 시각 마커 숨김 (어수선함 방지)
+                    const formulaCls = (formulaText && !isEmptyCell) ? ' formula-cell' : '';
+                    const emptyCls = isEmptyCell ? ' empty-cell' : '';
 
                     // 모든 시트에서 매핑된 텍스트 셀 → 상세 시트로 점프 (양방향 연동)
                     let linkSheet = null;
@@ -782,11 +792,11 @@
                     }
                     if (linkSheet) {
                         const safe = linkSheet.replace(/'/g, "\\'");
-                        html += `<td class="company-link${formulaCls}" title="${linkSheet} 시트로 이동 — ${titleAttr}" data-row="${rIdx}" data-col="${i}"${formulaAttr} onclick="switchSheet('${safe}')">${cellContent}</td>`;
+                        html += `<td class="company-link${formulaCls}${emptyCls}" title="${linkSheet} 시트로 이동 — ${titleAttr}" data-row="${rIdx}" data-col="${i}"${formulaAttr} onclick="switchSheet('${safe}')">${cellContent}</td>`;
                     } else if (isWorkerCompany && i === 1 && cell !== '' && !isRawForm) {
-                        html += `<td class="company-link${formulaCls}" title="${titleAttr}" data-row="${rIdx}" data-col="${i}"${formulaAttr} onclick="showCompanyDetail('${cell}')">${cell}</td>`;
+                        html += `<td class="company-link${formulaCls}${emptyCls}" title="${titleAttr}" data-row="${rIdx}" data-col="${i}"${formulaAttr} onclick="showCompanyDetail('${cell}')">${cell}</td>`;
                     } else {
-                        html += `<td contenteditable="true" class="${isNum ? 'num-cell' : ''}${formulaCls}" data-row="${rIdx}" data-col="${i}" title="${titleAttr}"${formulaAttr}>${cellContent}</td>`;
+                        html += `<td contenteditable="true" class="${isNum ? 'num-cell' : ''}${formulaCls}${emptyCls}" data-row="${rIdx}" data-col="${i}" title="${titleAttr}"${formulaAttr}>${cellContent}</td>`;
                     }
                 }
                 html += '</tr>';
