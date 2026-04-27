@@ -871,9 +871,15 @@
                 displayData = processedData;
             }
             const colWidth = 100 / maxCols;
-            const MIN_COL_PX = 140;
+            const MIN_COL_PX = 120;
             const tableMinWidth = maxCols * MIN_COL_PX;
-            let html = `<table style="margin-top:0; min-width:${tableMinWidth}px;"><thead>`;
+            let html = `<table style="margin-top:0; min-width:${tableMinWidth}px;">`;
+            // 모든 컬럼이 동일한 폭을 갖도록 colgroup으로 강제 (병합 셀이 있어도 일관 유지)
+            html += '<colgroup>';
+            for (let __i = 0; __i < maxCols; __i++) {
+                html += `<col style="width:${colWidth}%; min-width:${MIN_COL_PX}px;">`;
+            }
+            html += '</colgroup><thead>';
 
             // ── 헤더 위 sticky 행들 (있으면) — 라벨 누수/합계/그룹 부제 등 ──
             const stickyN = window._currentStickyN || ((window._currentHeaderIdx || 0) + 1);
