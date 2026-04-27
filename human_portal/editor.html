@@ -512,11 +512,12 @@
             else if (isWorkerCompany) maxCols = 10;
             else if (isWorkerDate) maxCols = 12;
             else if (isWorkerCash) maxCols = 9;
-            // raw 모드: 엑셀의 실제 열 수가 더 많으면 그대로 확장 (빈 칸 포함)
+            // raw 모드: 시트의 실제 열 수만 사용 (fallback 13/12 무시) — 시트별 컬럼 수가 다 다름
             if (isRawForm) {
                 const headerLen = (headers || []).length;
                 const dataLen = (data && data.length) ? Math.max(0, ...data.slice(0, 100).map(r => (r || []).length)) : 0;
-                maxCols = Math.max(maxCols, headerLen, dataLen);
+                const actual = Math.max(headerLen, dataLen);
+                if (actual > 0) maxCols = actual;
             }
 
             let displayHeaders = headers.slice(0, maxCols);
@@ -541,13 +542,21 @@
             } else if (isWorkerCash) {
                 displayHeaders = ["날짜", "구분", "업체/성명", "내용", "입금액", "출금액", "잔액", "계좌", "비고"];
             }
-            // 업로드된 엑셀의 헤더가 충분히 채워져 있으면 그것을 우선 사용 (양식이 매일 약간 달라져도 OK)
+            // 엑셀 시트의 실제 헤더 행을 표시 (함수 객체는 캐시값으로 unwrap)
+            // raw 모드(f1~f7)에서는 셀이 몇 개든 무조건 시트 헤더 그대로 사용
+            const normHeader = h => {
+                if (h === null || h === undefined) return '';
+                if (h && typeof h === 'object' && h.isFormula) {
+                    return (h.value !== undefined && h.value !== null) ? h.value.toString() : '';
+                }
+                return h.toString();
+            };
             if (headers && headers.length > 0) {
-                const filled = headers.slice(0, maxCols).filter(h => h && h.toString().trim() !== '').length;
-                if (filled >= Math.max(3, Math.floor(maxCols * 0.5))) {
-                    const uploaded = headers.slice(0, maxCols).map(h => (h === null || h === undefined) ? '' : h.toString());
-                    while (uploaded.length < maxCols) uploaded.push('');
-                    displayHeaders = uploaded;
+                const normalized = headers.slice(0, maxCols).map(normHeader);
+                const filled = normalized.filter(h => h.trim() !== '').length;
+                if (isRawForm || filled >= Math.max(3, Math.floor(maxCols * 0.5))) {
+                    while (normalized.length < maxCols) normalized.push('');
+                    displayHeaders = normalized;
                 }
             }
             
