@@ -862,8 +862,14 @@
                     formula = cell.formula || '';
                     cell = (cell.value !== undefined && cell.value !== null) ? cell.value : '';
                 }
-                if ((colIdx === 0 || (dateColsLocal && dateColsLocal.has(colIdx))) && typeof cell === 'number' && cell > 40000) {
-                    cell = new Date((cell - 25569) * 86400 * 1000).toISOString().split('T')[0];
+                // 날짜 컬럼이면 시리얼 숫자(또는 숫자 문자열)를 YYYY-MM-DD로 변환
+                const isDateCol = (colIdx === 0 || (dateColsLocal && dateColsLocal.has(colIdx)));
+                if (isDateCol) {
+                    let n = cell;
+                    if (typeof n === 'string' && n.trim() && !isNaN(n)) n = parseFloat(n);
+                    if (typeof n === 'number' && n > 40000 && n < 80000) {
+                        cell = new Date((n - 25569) * 86400 * 1000).toISOString().split('T')[0];
+                    }
                 }
                 const isEmpty = (cell === null || cell === undefined || (typeof cell === 'string' && cell.trim() === ''));
                 const isNum = !isEmpty && (typeof cell === 'number');
@@ -894,7 +900,7 @@
                 html += '<tr class="sticky-extra">';
                 for (let c = 0; c < maxCols; c++) {
                     if (upSkip.has(c)) continue;
-                    const r = renderSheetCell(upRow[c], c, null);
+                    const r = renderSheetCell(upRow[c], c, dateCols);
                     const span = upAnchor[c];
                     const colspanAttr = span && span.colspan > 1 ? ` colspan="${span.colspan}"` : '';
                     const rowspanAttr = span && span.rowspan > 1 ? ` rowspan="${span.rowspan}"` : '';
@@ -1143,10 +1149,13 @@
                         formulaText = cell.formula || '';
                         cell = (cell.value !== undefined && cell.value !== null) ? cell.value : '';
                     }
-                    // 첫 컬럼이거나 날짜 헤더 컬럼이면 엑셀 시리얼 숫자를 YYYY-MM-DD로 변환
-                    if ((i === 0 || dateCols.has(i)) && typeof cell === 'number' && cell > 40000) {
-                        const date = new Date((cell - 25569) * 86400 * 1000);
-                        cell = date.toISOString().split('T')[0];
+                    // 날짜 컬럼: 엑셀 시리얼 숫자(또는 숫자 문자열) → YYYY-MM-DD
+                    if (i === 0 || dateCols.has(i)) {
+                        let n = cell;
+                        if (typeof n === 'string' && n.trim() && !isNaN(n)) n = parseFloat(n);
+                        if (typeof n === 'number' && n > 40000 && n < 80000) {
+                            cell = new Date((n - 25569) * 86400 * 1000).toISOString().split('T')[0];
+                        }
                     }
                     
                     let isNum = false;
