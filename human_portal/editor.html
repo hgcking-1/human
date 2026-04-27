@@ -180,6 +180,14 @@
             }
         };
 
+        // 헤더 라벨 override (양식 → 시트 → 컬럼 인덱스(0-based) → 라벨)
+        // 엑셀에 빈 셀로 남아있는 컬럼에 표시 라벨을 강제로 부여
+        const HEADER_OVERRIDES = {
+            'f1': {
+                '2026년 4월휴먼': { 12: '인원수' }  // M열(0-based 12) — 추가금액과 지급 사이
+            }
+        };
+
         function autoMapSheet(cellText) {
             if (!cellText) return null;
             const t = cellText.toString().trim();
@@ -589,6 +597,15 @@
                     while (normalized.length < maxCols) normalized.push('');
                     displayHeaders = normalized;
                 }
+            }
+
+            // 시트별 헤더 라벨 override (빈 셀에 강제 라벨 부여)
+            const fmIdH = (type.match(/_(f[1-7])$/) || [])[1] || '';
+            const headerOverrides = (HEADER_OVERRIDES[fmIdH] || {})[activeSheet] || {};
+            if (Object.keys(headerOverrides).length > 0) {
+                displayHeaders = displayHeaders.map((h, i) =>
+                    headerOverrides[i] !== undefined ? headerOverrides[i] : h
+                );
             }
             
             // 새 양식(f1~f7)은 엑셀 원본 그대로: 빈 행/빈 셀/순서 모두 보존 (isRawForm은 위에서 정의됨)
