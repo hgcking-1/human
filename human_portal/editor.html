@@ -142,6 +142,17 @@
             const container = document.getElementById('editor-content');
             const fileInfo = document.getElementById('file-info');
             
+            // 7개 일용직 양식 (휴먼/채움 공통 양식)
+            const FORM_FILES = {
+                'f1': '2026.04 업체별_KM (1).xlsx',
+                'f2': '2026.04 일자별_KM.xlsx',
+                'f3': '2026.04-업체별 (3).xlsx',
+                'f4': '2026.04-업체별_외국인.xlsx',
+                'f5': '2026.04-일자별_채움.xlsx',
+                'f6': '2026.04-입출금양식_채움 (4).xlsx',
+                'f7': '2026.04-입출금양식_휴먼 (5).xlsx'
+            };
+
             const fileMap = {
                 'human_unpaid': '2026.03-금전&세무_휴먼(1. 미입금).xlsx',
                 'human_sales': '2026.03-금전&세무_휴먼(2.매출액).xlsx',
@@ -150,21 +161,19 @@
                 'human_daily2026': '2026.03-금전&세무_휴먼(11.2026년매일별입금출금장).xlsx',
                 'human_daily2025': '2026.03-금전&세무_휴먼(12.2025년매일별입금출금장).xlsx',
                 'human_bank': '2026.03-금전&세무_휴먼(현재잔고현황).xlsx',
-                'human_worker_company': '2026.04-업체별.xlsx',
-                'human_worker_foreign': '2026.04-업체별_외국인.xlsx',
-                'human_worker_date': '2026.04-일자별_채움.xlsx',
-                'human_worker_cash': '2026.04-입출금양식_휴먼.xlsx',
                 'chaeum_unpaid': '2026.03-금전&세무_채움(1. 미입금).xlsx',
                 'chaeum_sales': '2026.03-금전&세무_채움(2.매출액).xlsx',
                 'chaeum_purchase': '2026.03-금전&세무_채움(3.매입계산서).xlsx',
                 'chaeum_ledger': '2026.03-금전&세무_채움(4.현재 잔액 장부).xlsx',
                 'chaeum_daily2026': '2026.03-금전&세무_채움(11.2026년매일별입금출금장).xlsx',
-                'chaeum_bank': '2026.03-금전&세무_채움(현재잔고현황).xlsx',
-                'chaeum_worker_company': '2026.04-업체별.xlsx',
-                'chaeum_worker_foreign': '2026.04-업체별_외국인.xlsx',
-                'chaeum_worker_date': '2026.04-일자별_채움.xlsx',
-                'chaeum_worker_cash': '2026.04-입출금양식_채움.xlsx'
+                'chaeum_bank': '2026.03-금전&세무_채움(현재잔고현황).xlsx'
             };
+            // 7개 일용직 양식을 휴먼/채움 양사에 매핑 (동일 파일을 양사가 각자 저장)
+            ['human','chaeum'].forEach(co => {
+                Object.keys(FORM_FILES).forEach(fid => {
+                    fileMap[`${co}_${fid}`] = FORM_FILES[fid];
+                });
+            });
 
             const titleMap = {
                 'unpaid': '🔴 미입금 현황',
@@ -174,10 +183,13 @@
                 'daily2026': '📊 2026 일별 입출금장',
                 'daily2025': '📉 2025 일별 입출금장',
                 'bank': '🏦 은행 계좌 현황',
-                'worker_company': '👷 일용직 근무 내역 (업체별)',
-                'worker_foreign': '👷 일용직 근무 내역 (외국인)',
-                'worker_date': '👷 일용직 근무 내역 (일자별)',
-                'worker_cash': '👷 일용직 입출금 내역'
+                'f1': '📊 일용직 — 업체별 (KM)',
+                'f2': '📅 일용직 — 일자별 (KM)',
+                'f3': '🏢 일용직 — 업체별',
+                'f4': '🌐 일용직 — 업체별 외국인',
+                'f5': '📆 일용직 — 일자별 (채움)',
+                'f6': '💰 일용직 — 입출금양식 (채움)',
+                'f7': '💵 일용직 — 입출금양식 (휴먼)'
             };
 
             const baseType = type.replace('human_', '').replace('chaeum_', '');
@@ -189,7 +201,9 @@
                 try {
                     const parsed = JSON.parse(saved);
                     if (parsed.headers && parsed.data) {
-                        fileInfo.textContent = "저장된 데이터 로드";
+                        if (parsed.sheets) allSheetsData = parsed.sheets;
+                        const tag = parsed.fileName ? `📁 ${parsed.fileName} (${parsed.uploadedAt || '저장됨'})` : '저장된 데이터';
+                        fileInfo.textContent = tag;
                         renderEditor(parsed.headers, parsed.data);
                         return;
                     }
@@ -246,16 +260,25 @@
             const isPurchase = type.includes('purchase');
             const isLedger = type.includes('ledger');
             const isBank = type.includes('bank');
-            const isWorkerCompany = type.includes('worker_company') || type.includes('worker_foreign');
-            const isWorkerDate = type.includes('worker_date');
-            const isWorkerCash = type.includes('worker_cash');
+            // 새 7개 양식 분기 (휴먼/채움 공통)
+            const fmId = (type.match(/_(f[1-7])$/) || [])[1] || '';
+            const isBizForm = ['f1','f3','f4'].includes(fmId);   // 업체별/외국인 (13열)
+            const isDailyForm = ['f2','f5'].includes(fmId);       // 일자별 (13열)
+            const isCashForm = ['f6','f7'].includes(fmId);        // 입출금양식 (12열)
+            // 옛 type 호환
+            const isWorkerCompany = type.includes('worker_company') || type.includes('worker_foreign') || isBizForm;
+            const isWorkerDate = type.includes('worker_date') || isDailyForm;
+            const isWorkerCash = type.includes('worker_cash') || isCashForm;
             const isAnyWorker = isWorkerCompany || isWorkerDate || isWorkerCash;
 
-            let maxCols = 7; 
+            let maxCols = 7;
             if (isLedger) maxCols = 8;
             else if (isPurchase) maxCols = 6;
             else if (isBank) maxCols = 3;
-            else if (isWorkerCompany) maxCols = 10; 
+            else if (isBizForm) maxCols = 13;
+            else if (isDailyForm) maxCols = 13;
+            else if (isCashForm) maxCols = 12;
+            else if (isWorkerCompany) maxCols = 10;
             else if (isWorkerDate) maxCols = 12;
             else if (isWorkerCash) maxCols = 9;
 
@@ -268,12 +291,27 @@
                 displayHeaders = ["날짜", "적요", "입금액(원)", "출금액(원)", "잔액(원)", "계산서발행일", "계좌", "비고"];
             } else if (isBank) {
                 displayHeaders = ["계좌명", "잔액", "비고"];
+            } else if (isBizForm) {
+                displayHeaders = ["날짜","업체","현장","업무","근무시간","이름","전화번호","주민번호","은행","계좌번호","지급액","청구액","차감"];
+            } else if (isDailyForm) {
+                displayHeaders = ["No.","업체","현장","업무","근무시간","이름","연락처","주민번호","은행","계좌번호","지급액","청구액","지급일"];
+            } else if (isCashForm) {
+                displayHeaders = ["작성일자","상호","매출합계","매출공급가액","매출세액","매입합계","매입공급가액","매입세액","비고","입금일","출금일","통장"];
             } else if (isWorkerCompany) {
                 displayHeaders = ["근무일자", "업체명", "현장명", "인원수", "단가", "노무비합계", "식대", "지출합계", "출금계좌", "비고"];
             } else if (isWorkerDate) {
                 displayHeaders = ["날짜", "요일", "성명", "주민번호", "업체명", "현장명", "단가", "식대", "합계", "계좌번호", "은행", "예금주"];
             } else if (isWorkerCash) {
                 displayHeaders = ["날짜", "구분", "업체/성명", "내용", "입금액", "출금액", "잔액", "계좌", "비고"];
+            }
+            // 업로드된 엑셀의 헤더가 충분히 채워져 있으면 그것을 우선 사용 (양식이 매일 약간 달라져도 OK)
+            if (headers && headers.length > 0) {
+                const filled = headers.slice(0, maxCols).filter(h => h && h.toString().trim() !== '').length;
+                if (filled >= Math.max(3, Math.floor(maxCols * 0.5))) {
+                    const uploaded = headers.slice(0, maxCols).map(h => (h === null || h === undefined) ? '' : h.toString());
+                    while (uploaded.length < maxCols) uploaded.push('');
+                    displayHeaders = uploaded;
+                }
             }
             
             let processedData = data.filter(row => {
@@ -335,6 +373,22 @@
             }
 
             function addSummaryRow(label, totals, className = 'total-row') {
+                if (isBizForm || isDailyForm) {
+                    return `<tr class="${className}">
+                        <td colspan="10" class="total-label">${label} (${totals.workers.toLocaleString()}건)</td>
+                        <td class="num-cell">${totals.cost.toLocaleString()}원</td>
+                        <td class="num-cell">${totals.total.toLocaleString()}원</td>
+                        <td></td>
+                    </tr>`;
+                } else if (isCashForm) {
+                    return `<tr class="${className}">
+                        <td colspan="2" class="total-label">${label}</td>
+                        <td class="num-cell">${totals.supply.toLocaleString()}원</td>
+                        <td colspan="2"></td>
+                        <td class="num-cell">${totals.tax.toLocaleString()}원</td>
+                        <td colspan="6"></td>
+                    </tr>`;
+                }
                 if (isWorkerCompany) {
                     return `<tr class="${className}">
                         <td colspan="3" class="total-label">${label}</td>
@@ -390,7 +444,22 @@
                 
                 const cleanNum = (val) => parseInt((val || 0).toString().replace(/[^0-9-]/g, '')) || 0;
                 
-                if (isWorkerCompany) {
+                if (isBizForm) {
+                    const pay = cleanNum(row[10]);
+                    const bill = cleanNum(row[11]);
+                    monthTotals.cost += pay; monthTotals.total += bill; monthTotals.workers += 1;
+                    weekTotals.cost += pay; weekTotals.total += bill; weekTotals.workers += 1;
+                } else if (isDailyForm) {
+                    const pay = cleanNum(row[10]);
+                    const bill = cleanNum(row[11]);
+                    monthTotals.cost += pay; monthTotals.total += bill; monthTotals.workers += 1;
+                    weekTotals.cost += pay; weekTotals.total += bill; weekTotals.workers += 1;
+                } else if (isCashForm) {
+                    const sale = cleanNum(row[2]);
+                    const buy = cleanNum(row[5]);
+                    monthTotals.supply += sale; monthTotals.tax += buy;
+                    weekTotals.supply += sale; weekTotals.tax += buy;
+                } else if (isWorkerCompany) {
                     const workers = cleanNum(row[3]);
                     const cost = cleanNum(row[5]);
                     const total = cleanNum(row[7]);
@@ -425,7 +494,10 @@
                     }
                     
                     let isNum = false;
-                    if (isWorkerCompany) isNum = (i === 3 || i === 4 || i === 5 || i === 6 || i === 7);
+                    if (isBizForm) isNum = (i === 10 || i === 11 || i === 12);
+                    else if (isDailyForm) isNum = (i === 0 || i === 10 || i === 11);
+                    else if (isCashForm) isNum = (i >= 2 && i <= 7);
+                    else if (isWorkerCompany) isNum = (i === 3 || i === 4 || i === 5 || i === 6 || i === 7);
                     else if (isWorkerDate) isNum = (i === 6 || i === 7 || i === 8);
                     else if (isWorkerCash) isNum = (i === 4 || i === 5 || i === 6);
                     else isNum = (i >= 2 && i <= 4);
@@ -536,23 +608,39 @@
             reader.onload = function(e) {
                 try {
                     const workbook = XLSX.read(new Uint8Array(e.target.result), { type: 'array', dense: true });
-                    
-                    // 업로드 시에도 모든 시트 데이터 저장
+
+                    // 업로드 시 모든 시트 데이터 저장
                     allSheetsData = {};
                     workbook.SheetNames.forEach(sheetName => {
-                        if (sheetName !== "2026년 04월채움") {
-                            allSheetsData[sheetName] = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1 });
-                        }
+                        allSheetsData[sheetName] = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1 });
                     });
 
                     const worksheet = workbook.Sheets[workbook.SheetNames[0]];
                     const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
                     if (jsonData.length > 0) {
-                        renderEditor(jsonData[0], jsonData.slice(1));
-                        alert('불러오기 완료! [변경사항 저장]을 눌러야 유지됩니다.');
+                        // 헤더 행 자동 탐지 (1~3행 중 첫 비-빈 행)
+                        let headerIdx = 0;
+                        for (let i = 0; i < Math.min(3, jsonData.length); i++) {
+                            if (jsonData[i] && jsonData[i].some(c => c && c.toString().trim() !== '')) { headerIdx = i; break; }
+                        }
+                        const headers = jsonData[headerIdx] || [];
+                        const data = jsonData.slice(headerIdx + 1).filter(r => r && r.some(c => c !== null && c !== undefined && c.toString().trim() !== ''));
+
+                        // 자동 저장
+                        localStorage.setItem('data_' + type, JSON.stringify({
+                            headers, data,
+                            sheets: allSheetsData,
+                            fileName: file.name,
+                            uploadedAt: new Date().toLocaleString('ko-KR')
+                        }));
+
+                        renderEditor(headers, data);
+                        document.getElementById('file-info').textContent = `📁 ${file.name} (자동 저장됨)`;
+                        document.getElementById('status-msg').textContent = `${data.length}행 자동 저장 완료`;
+                        alert(`✅ "${file.name}" 업로드 및 자동 저장 완료\n${data.length}행이 저장되었습니다.`);
                     }
                 } catch (err) {
-                    alert('파일을 읽는 중 오류가 발생했습니다.');
+                    alert('파일을 읽는 중 오류가 발생했습니다: ' + err.message);
                 }
             };
             reader.readAsArrayBuffer(file);
@@ -600,10 +688,20 @@
         function saveData() {
             const headers = Array.from(document.querySelectorAll('th')).map(th => th.textContent);
             const data = Array.from(document.querySelectorAll('tbody tr'))
-                .filter(row => !row.classList.contains('total-row') && !row.classList.contains('month-group-divider'))
+                .filter(row => !row.classList.contains('total-row') && !row.classList.contains('week-total-row') && !row.classList.contains('month-group-divider'))
                 .map(row => Array.from(row.querySelectorAll('td')).map(td => td.textContent));
-            
-            localStorage.setItem('data_' + type, JSON.stringify({ headers, data }));
+
+            let prev = {};
+            try { prev = JSON.parse(localStorage.getItem('data_' + type)) || {}; } catch(e) {}
+
+            localStorage.setItem('data_' + type, JSON.stringify({
+                headers,
+                data,
+                sheets: prev.sheets,
+                fileName: prev.fileName,
+                uploadedAt: prev.uploadedAt,
+                editedAt: new Date().toLocaleString('ko-KR')
+            }));
             alert('데이터가 영구 저장되었습니다.');
             location.reload();
         }

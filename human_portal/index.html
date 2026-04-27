@@ -173,16 +173,11 @@
                             <div class="stat-value masked-data" id="h-val-usage" style="font-size: 1.4rem;">●●●,●●●원</div>
                         </div>
 
-                        <!-- 11. 일용직 근무 내역 -->
-                        <div class="glass-card dashboard-card" id="h-card-daily-worker" style="grid-column: 1 / -1; border-top: 5px solid #16a085;">
-                            <h3>👷 일용직 근무 내역 (휴먼)</h3>
-                            <div class="stat-value masked-data" id="h-val-daily-worker" style="color: #16a085; font-size: 1.5rem;">●●●,●●●원</div>
-                            <div style="display: flex; gap: 5px; justify-content: center; flex-wrap: wrap; margin-top: 10px;">
-                                <button class="btn-sm" onclick="openSecureDetail('human_worker_company')">업체별</button>
-                                <button class="btn-sm" onclick="openSecureDetail('human_worker_foreign')">외국인</button>
-                                <button class="btn-sm" onclick="openSecureDetail('human_worker_date')">일자별</button>
-                                <button class="btn-sm" onclick="openSecureDetail('human_worker_cash')">입출금양식</button>
-                            </div>
+                        <!-- 11. 일용직 근무 내역 - 7개 양식 -->
+                        <div class="glass-card dashboard-card" id="h-card-daily-worker" style="grid-column: 1 / -1; border-top: 5px solid #16a085; text-align: left;">
+                            <h3 style="text-align:center;">👷 일용직 근무 내역 (휴먼) — 7개 양식 매일 업데이트</h3>
+                            <div class="stat-value masked-data" id="h-val-daily-worker" style="color: #16a085; font-size: 1.3rem; text-align:center; margin-bottom: 12px;">●●●,●●●원</div>
+                            <div class="form-tile-grid" id="h-form-grid"></div>
                         </div>
                     </div>
                 </div>
@@ -244,16 +239,11 @@
                             <div class="stat-value masked-data" id="c-val-usage" style="font-size: 1.4rem;">●●●,●●●원</div>
                         </div>
 
-                        <!-- 11. 일용직 근무 내역 -->
-                        <div class="glass-card dashboard-card" id="c-card-daily-worker" style="grid-column: 1 / -1; border-top: 5px solid #16a085;">
-                            <h3>👷 일용직 근무 내역 (채움서비스)</h3>
-                            <div class="stat-value masked-data" id="c-val-daily-worker" style="color: #16a085; font-size: 1.5rem;">●●●,●●●원</div>
-                            <div style="display: flex; gap: 5px; justify-content: center; flex-wrap: wrap; margin-top: 10px;">
-                                <button class="btn-sm" onclick="openSecureDetail('chaeum_worker_company')">업체별</button>
-                                <button class="btn-sm" onclick="openSecureDetail('chaeum_worker_foreign')">외국인</button>
-                                <button class="btn-sm" onclick="openSecureDetail('chaeum_worker_date')">일자별</button>
-                                <button class="btn-sm" onclick="openSecureDetail('chaeum_worker_cash')">입출금양식</button>
-                            </div>
+                        <!-- 11. 일용직 근무 내역 - 7개 양식 -->
+                        <div class="glass-card dashboard-card" id="c-card-daily-worker" style="grid-column: 1 / -1; border-top: 5px solid #16a085; text-align: left;">
+                            <h3 style="text-align:center;">👷 일용직 근무 내역 (채움서비스) — 7개 양식 매일 업데이트</h3>
+                            <div class="stat-value masked-data" id="c-val-daily-worker" style="color: #16a085; font-size: 1.3rem; text-align:center; margin-bottom: 12px;">●●●,●●●원</div>
+                            <div class="form-tile-grid" id="c-form-grid"></div>
                         </div>
                     </div>
                 </div>
@@ -268,6 +258,23 @@
             .dashboard-card h3 { font-size: 1rem; color: #7f8c8d; margin-bottom: 0.5rem; }
             .btn-sm { padding: 0.3rem 0.8rem; font-size: 0.75rem; border-radius: 5px; border: 1px solid var(--accent-color); background: none; color: var(--accent-color); cursor: pointer; }
             .btn-sm:hover { background: var(--accent-color); color: white; }
+
+            /* 7개 일용직 양식 타일 */
+            .form-tile-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; }
+            .form-tile { padding: 12px 10px; border: 1px solid #e0e0e0; border-radius: 10px; background: #fafafa; text-align: center; transition: all 0.2s; position: relative; }
+            .form-tile:hover { background: #f0f4f8; border-color: #bbb; transform: translateY(-1px); box-shadow: 0 2px 6px rgba(0,0,0,0.05); }
+            .form-tile-icon { font-size: 1.4rem; margin-bottom: 4px; }
+            .form-tile-title { font-size: 0.82rem; font-weight: 700; color: #2c3e50; margin-bottom: 2px; }
+            .form-tile-meta { font-size: 0.65rem; color: #95a5a6; margin-bottom: 8px; min-height: 14px; line-height: 1.3; }
+            .form-tile-meta.has-data { color: #16a085; font-weight: 600; }
+            .form-tile-buttons { display: flex; gap: 4px; justify-content: center; flex-wrap: wrap; }
+            .form-tile-buttons .btn-sm { font-size: 0.68rem; padding: 0.25rem 0.55rem; }
+            .form-tile-buttons .btn-open { border-color: #2980b9; color: #2980b9; }
+            .form-tile-buttons .btn-open:hover { background: #2980b9; color: white; }
+            .form-tile-buttons .btn-upload { border-color: #27ae60; color: #27ae60; cursor: pointer; display: inline-block; }
+            .form-tile-buttons .btn-upload:hover { background: #27ae60; color: white; }
+            .form-tile-status { position: absolute; top: 6px; right: 6px; width: 8px; height: 8px; border-radius: 50%; background: #ddd; }
+            .form-tile-status.uploaded { background: #27ae60; box-shadow: 0 0 4px rgba(39,174,96,0.5); }
         </style>
 
         <footer>

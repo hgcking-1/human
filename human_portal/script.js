@@ -1,8 +1,132 @@
+// 7개 일용직 양식 정의 (휴먼/채움 공통)
+const FORMS = [
+    { id: 'f1', icon: '📊', title: '업체별 (KM)',     file: '2026.04 업체별_KM (1).xlsx',         payCol: 10 },
+    { id: 'f2', icon: '📅', title: '일자별 (KM)',     file: '2026.04 일자별_KM.xlsx',             payCol: 10 },
+    { id: 'f3', icon: '🏢', title: '업체별',          file: '2026.04-업체별 (3).xlsx',            payCol: 10 },
+    { id: 'f4', icon: '🌐', title: '업체별 외국인',   file: '2026.04-업체별_외국인.xlsx',         payCol: 10 },
+    { id: 'f5', icon: '📆', title: '일자별 (채움)',   file: '2026.04-일자별_채움.xlsx',           payCol: 10 },
+    { id: 'f6', icon: '💰', title: '입출금 (채움)',   file: '2026.04-입출금양식_채움 (4).xlsx',   payCol: 2  },
+    { id: 'f7', icon: '💵', title: '입출금 (휴먼)',   file: '2026.04-입출금양식_휴먼 (5).xlsx',   payCol: 2  }
+];
+
 document.addEventListener('DOMContentLoaded', function() {
+    buildFormTiles('h');
+    buildFormTiles('c');
     checkExistingSession();
     refreshAdminPanel();
-    initPurchaseChart(); 
+    initPurchaseChart();
 });
+
+function buildFormTiles(prefix) {
+    const grid = document.getElementById(prefix + '-form-grid');
+    if (!grid) return;
+    const company = prefix === 'h' ? 'human' : 'chaeum';
+    grid.innerHTML = FORMS.map(f => {
+        const type = company + '_' + f.id;
+        return `
+            <div class="form-tile" id="tile-${type}">
+                <span class="form-tile-status" id="status-${type}"></span>
+                <div class="form-tile-icon">${f.icon}</div>
+                <div class="form-tile-title">${f.title}</div>
+                <div class="form-tile-meta" id="meta-${type}">데이터 없음</div>
+                <div class="form-tile-buttons">
+                    <button class="btn-sm btn-open" onclick="openSecureDetail('${type}')">📊 열기</button>
+                    <label class="btn-sm btn-upload" for="upload-${type}">📁 업로드</label>
+                    <input type="file" id="upload-${type}" accept=".xlsx,.xls" style="display:none" onchange="quickUpload(event,'${type}')">
+                </div>
+            </div>`;
+    }).join('');
+    FORMS.forEach(f => refreshFormTile(company + '_' + f.id));
+}
+
+function refreshFormTile(type) {
+    const meta = document.getElementById('meta-' + type);
+    const status = document.getElementById('status-' + type);
+    if (!meta) return;
+    try {
+        const saved = JSON.parse(localStorage.getItem('data_' + type));
+        if (saved && saved.data && saved.data.length > 0) {
+            const rows = saved.data.length;
+            const fileName = saved.fileName ? saved.fileName.replace(/\.(xlsx|xls)$/i, '') : '저장됨';
+            const ts = saved.uploadedAt ? saved.uploadedAt.split(' ')[0] : '';
+            meta.innerHTML = `<b>${rows}행</b> · ${ts || fileName}`;
+            meta.classList.add('has-data');
+            if (status) status.classList.add('uploaded');
+        } else {
+            meta.textContent = '원본 양식 사용';
+            meta.classList.remove('has-data');
+            if (status) status.classList.remove('uploaded');
+        }
+    } catch(e) {
+        meta.textContent = '데이터 없음';
+    }
+}
+
+function quickUpload(event, type) {
+    const file = event.target.files[0];
+    if (!file) return;
+    if (!localStorage.getItem('userSession')) {
+        alert('업로드는 로그인 후 가능합니다.');
+        event.target.value = '';
+        return;
+    }
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        try {
+            const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array', dense: true });
+            const sheets = {};
+            wb.SheetNames.forEach(s => {
+                sheets[s] = XLSX.utils.sheet_to_json(wb.Sheets[s], { header: 1 });
+            });
+            const ws = wb.Sheets[wb.SheetNames[0]];
+            const json = XLSX.utils.sheet_to_json(ws, { header: 1 });
+            // 1행이 머리글이라 가정. 빈 행 제거.
+            let headerIdx = 0;
+            for (let i = 0; i < Math.min(3, json.length); i++) {
+                if (json[i] && json[i].some(c => c && c.toString().trim() !== '')) { headerIdx = i; break; }
+            }
+            const headers = json[headerIdx] || [];
+            const data = json.slice(headerIdx + 1).filter(r => r && r.some(c => c !== null && c !== undefined && c.toString().trim() !== ''));
+            const payload = {
+                headers,
+                data,
+                sheets,
+                fileName: file.name,
+                uploadedAt: new Date().toLocaleString('ko-KR'),
+                uploadedBy: (JSON.parse(localStorage.getItem('userSession')) || {}).name || '관리자'
+            };
+            localStorage.setItem('data_' + type, JSON.stringify(payload));
+            refreshFormTile(type);
+            recalcWorkerTotals();
+            alert(`✅ "${file.name}" 업로드 완료\n${data.length}행이 저장되었습니다.`);
+        } catch (err) {
+            alert('파일 읽기 오류: ' + err.message);
+        }
+        event.target.value = '';
+    };
+    reader.readAsArrayBuffer(file);
+}
+
+function recalcWorkerTotals() {
+    ['h', 'c'].forEach(prefix => {
+        const company = prefix === 'h' ? 'human' : 'chaeum';
+        const workerEl = document.getElementById(prefix + '-val-daily-worker');
+        if (!workerEl) return;
+        let sum = 0;
+        FORMS.forEach(f => {
+            try {
+                const saved = JSON.parse(localStorage.getItem('data_' + company + '_' + f.id));
+                if (saved && saved.data) {
+                    saved.data.forEach(row => {
+                        const v = parseInt((row[f.payCol] || 0).toString().replace(/[^0-9-]/g, '')) || 0;
+                        sum += v;
+                    });
+                }
+            } catch(e) {}
+        });
+        if (sum > 0) workerEl.textContent = sum.toLocaleString() + '원';
+    });
+}
 
 function initPurchaseChart() {
     // Only Human purchase chart for now as specified in original, 
@@ -221,11 +345,25 @@ function applyPermissions(grade, name) {
             usageEl.textContent = prefix === 'h' ? '45,880,000원' : '22,440,000원';
         }
 
-        // 11. 일용직 근무 내역
+        // 11. 일용직 근무 내역 — 7개 양식 합계
         const workerEl = document.getElementById(`${prefix}-val-daily-worker`);
         if (workerEl) {
             workerEl.classList.add('unmasked');
-            workerEl.textContent = prefix === 'h' ? '12,500,000원' : '8,400,000원';
+            let sum = 0;
+            FORMS.forEach(f => {
+                try {
+                    const saved = JSON.parse(localStorage.getItem('data_' + companyKey + '_' + f.id));
+                    if (saved && saved.data) {
+                        saved.data.forEach(row => {
+                            const v = parseInt((row[f.payCol] || 0).toString().replace(/[^0-9-]/g, '')) || 0;
+                            sum += v;
+                        });
+                    }
+                } catch(e) {}
+            });
+            workerEl.textContent = sum > 0
+                ? sum.toLocaleString() + '원'
+                : (prefix === 'h' ? '12,500,000원' : '8,400,000원');
         }
     });
 
