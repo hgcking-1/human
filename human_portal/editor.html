@@ -274,9 +274,10 @@
             const isBank = type.includes('bank');
             // 새 7개 양식 분기 (휴먼/채움 공통)
             const fmId = (type.match(/_(f[1-7])$/) || [])[1] || '';
-            const isBizForm = ['f1','f3','f4'].includes(fmId);   // 업체별/외국인 (13열)
-            const isDailyForm = ['f2','f5'].includes(fmId);       // 일자별 (13열)
-            const isCashForm = ['f6','f7'].includes(fmId);        // 입출금양식 (12열)
+            const isBizForm = ['f1','f3','f4'].includes(fmId);   // 업체별/외국인
+            const isDailyForm = ['f2','f5'].includes(fmId);       // 일자별
+            const isCashForm = ['f6','f7'].includes(fmId);        // 금전출납(세무용)
+            const isRawForm = isBizForm || isDailyForm || isCashForm; // 엑셀 원본 그대로 표시
             // 옛 type 호환
             const isWorkerCompany = type.includes('worker_company') || type.includes('worker_foreign') || isBizForm;
             const isWorkerDate = type.includes('worker_date') || isDailyForm;
@@ -293,6 +294,12 @@
             else if (isWorkerCompany) maxCols = 10;
             else if (isWorkerDate) maxCols = 12;
             else if (isWorkerCash) maxCols = 9;
+            // raw 모드: 엑셀의 실제 열 수가 더 많으면 그대로 확장 (빈 칸 포함)
+            if (isRawForm) {
+                const headerLen = (headers || []).length;
+                const dataLen = (data && data.length) ? Math.max(0, ...data.slice(0, 100).map(r => (r || []).length)) : 0;
+                maxCols = Math.max(maxCols, headerLen, dataLen);
+            }
 
             let displayHeaders = headers.slice(0, maxCols);
             if (isSales) {
@@ -326,20 +333,9 @@
                 }
             }
             
-            let processedData = data.filter(row => {
-                if (!row || row.length === 0) return false;
-                const actualData = row.slice(0, maxCols);
-                return actualData.some(cell => cell !== null && cell !== undefined && cell.toString().trim() !== '');
-            });
-            
-            processedData = processedData.filter(row => {
-                const rowStr = JSON.stringify(row);
-                const ignoreKeywords = ["작성일자", "상호", "번호", "합계금액", "근무일자", "주민번호", "예금주", "입금액"];
-                return !ignoreKeywords.some(key => rowStr.includes(key));
-            });
-
+            // 새 양식(f1~f7)은 엑셀 원본 그대로: 빈 행/빈 셀/순서 모두 보존 (isRawForm은 위에서 정의됨)
             const parseDateObj = (val) => {
-                if (!val) return null;
+                if (val === null || val === undefined || val === '') return null;
                 if (typeof val === 'number' && val > 40000) return new Date((val - 25569) * 86400 * 1000);
                 let str = val.toString();
                 if (str.includes('월')) str = '2026-' + str.replace('월', '-').replace('일', '').replace(/\s/g, '');
@@ -348,20 +344,40 @@
                 return isNaN(d.getTime()) ? null : d;
             };
 
-            if (isSales || isPurchase || isLedger || isAnyWorker) {
-                processedData = processedData.map(row => {
-                    let cleaned = row.slice(0, maxCols);
+            // raw 모드: 행 필터/정렬 모두 끔. 셀 길이만 maxCols에 맞춰 빈칸으로 채움.
+            let processedData;
+            if (isRawForm) {
+                processedData = (data || []).map(row => {
+                    const cleaned = (row || []).slice();
                     while (cleaned.length < maxCols) cleaned.push('');
                     return cleaned;
                 });
-                processedData.sort((a, b) => {
-                    const dateA = parseDateObj(a[0]);
-                    const dateB = parseDateObj(b[0]);
-                    if (!dateA && !dateB) return 0;
-                    if (!dateA) return 1;
-                    if (!dateB) return -1;
-                    return dateB.getTime() - dateA.getTime();
+            } else {
+                processedData = data.filter(row => {
+                    if (!row || row.length === 0) return false;
+                    const actualData = row.slice(0, maxCols);
+                    return actualData.some(cell => cell !== null && cell !== undefined && cell.toString().trim() !== '');
                 });
+                processedData = processedData.filter(row => {
+                    const rowStr = JSON.stringify(row);
+                    const ignoreKeywords = ["작성일자", "상호", "번호", "합계금액", "근무일자", "주민번호", "예금주", "입금액"];
+                    return !ignoreKeywords.some(key => rowStr.includes(key));
+                });
+                if (isSales || isPurchase || isLedger || isAnyWorker) {
+                    processedData = processedData.map(row => {
+                        let cleaned = row.slice(0, maxCols);
+                        while (cleaned.length < maxCols) cleaned.push('');
+                        return cleaned;
+                    });
+                    processedData.sort((a, b) => {
+                        const dateA = parseDateObj(a[0]);
+                        const dateB = parseDateObj(b[0]);
+                        if (!dateA && !dateB) return 0;
+                        if (!dateA) return 1;
+                        if (!dateB) return -1;
+                        return dateB.getTime() - dateA.getTime();
+                    });
+                }
             }
             
             const displayData = processedData; 
@@ -443,15 +459,18 @@
                     currentWeek = getWeekNumber(dateObj);
                 }
                 
-                if ((isLedger || isAnyWorker) && lastWeek !== '' && currentWeek !== lastWeek) {
-                    html += addSummaryRow(`📅 ${lastWeek} 주간 소계`, weekTotals, 'week-total-row');
-                    weekTotals = { total: 0, supply: 0, tax: 0, workers: 0, cost: 0 };
-                }
-                if (lastMonth !== '' && currentMonth !== lastMonth) {
-                    html += addSummaryRow(`Σ ${lastMonth} 월간 소계`, monthTotals, 'total-row');
-                    html += `<tr class="month-group-divider"><td colspan="${maxCols}" style="padding:0; height:0;"></td></tr>`;
-                    monthTotals = { total: 0, supply: 0, tax: 0, workers: 0, cost: 0 };
-                    monthIndex = (monthIndex + 1) % 4;
+                // raw 모드(엑셀 그대로)에서는 자동 합계/구분선 행 삽입 안 함
+                if (!isRawForm) {
+                    if ((isLedger || isAnyWorker) && lastWeek !== '' && currentWeek !== lastWeek) {
+                        html += addSummaryRow(`📅 ${lastWeek} 주간 소계`, weekTotals, 'week-total-row');
+                        weekTotals = { total: 0, supply: 0, tax: 0, workers: 0, cost: 0 };
+                    }
+                    if (lastMonth !== '' && currentMonth !== lastMonth) {
+                        html += addSummaryRow(`Σ ${lastMonth} 월간 소계`, monthTotals, 'total-row');
+                        html += `<tr class="month-group-divider"><td colspan="${maxCols}" style="padding:0; height:0;"></td></tr>`;
+                        monthTotals = { total: 0, supply: 0, tax: 0, workers: 0, cost: 0 };
+                        monthIndex = (monthIndex + 1) % 4;
+                    }
                 }
                 
                 const cleanNum = (val) => parseInt((val || 0).toString().replace(/[^0-9-]/g, '')) || 0;
@@ -526,8 +545,10 @@
                 html += '</tr>';
             });
             
-            if ((isLedger || isAnyWorker) && lastWeek !== '') html += addSummaryRow(`📅 ${lastWeek} 주간 소계`, weekTotals, 'week-total-row');
-            if (lastMonth !== '') html += addSummaryRow(`Σ ${lastMonth} 월간 소계`, monthTotals, 'total-row');
+            if (!isRawForm) {
+                if ((isLedger || isAnyWorker) && lastWeek !== '') html += addSummaryRow(`📅 ${lastWeek} 주간 소계`, weekTotals, 'week-total-row');
+                if (lastMonth !== '') html += addSummaryRow(`Σ ${lastMonth} 월간 소계`, monthTotals, 'total-row');
+            }
             
             html += '</tbody></table>';
             container.innerHTML = html;
@@ -639,7 +660,8 @@
                             }
                         }
                         const headers = jsonData[headerIdx] || [];
-                        const data = jsonData.slice(headerIdx + 1).filter(r => r && r.some(c => c !== null && c !== undefined && c.toString().trim() !== ''));
+                        // 엑셀 원본 그대로: 빈 행도 보존
+                        const data = jsonData.slice(headerIdx + 1);
 
                         // 자동 저장
                         localStorage.setItem('data_' + type, JSON.stringify({

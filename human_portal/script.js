@@ -95,7 +95,8 @@ function quickUpload(event, type) {
                 }
             }
             const headers = json[headerIdx] || [];
-            const data = json.slice(headerIdx + 1).filter(r => r && r.some(c => c !== null && c !== undefined && c.toString().trim() !== ''));
+            // 엑셀 원본 그대로: 빈 행도 보존 (사용자 요청)
+            const data = json.slice(headerIdx + 1);
             const payload = {
                 headers,
                 data,
