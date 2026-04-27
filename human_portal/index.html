@@ -31,6 +31,12 @@
         </div>
     </div>
 
+    <!-- 디지털 시계 (좌상단 고정) -->
+    <div id="digital-clock" class="digital-clock">
+        <div class="clock-date" id="clock-date">----.--.--</div>
+        <div class="clock-time" id="clock-time">--:--:--</div>
+    </div>
+
     <div class="overlay">
         <header>
             <div class="logo">
@@ -258,6 +264,40 @@
             .dashboard-card h3 { font-size: 1rem; color: #7f8c8d; margin-bottom: 0.5rem; }
             .btn-sm { padding: 0.3rem 0.8rem; font-size: 0.75rem; border-radius: 5px; border: 1px solid var(--accent-color); background: none; color: var(--accent-color); cursor: pointer; }
             .btn-sm:hover { background: var(--accent-color); color: white; }
+
+            /* 디지털 시계 (좌상단 고정) */
+            .digital-clock {
+                position: fixed;
+                top: 14px;
+                left: 18px;
+                z-index: 1500;
+                background: linear-gradient(180deg, #1a1a1a 0%, #000 100%);
+                color: #00ff66;
+                padding: 8px 16px;
+                border: 2px solid #2c3e50;
+                border-radius: 8px;
+                font-family: 'Courier New', 'Consolas', monospace;
+                box-shadow: inset 0 0 12px rgba(0,255,102,0.15), 0 4px 14px rgba(0,0,0,0.4);
+                text-align: center;
+                line-height: 1.3;
+                user-select: none;
+                min-width: 130px;
+            }
+            .digital-clock .clock-date {
+                font-size: 0.72rem;
+                color: #ffd966;
+                letter-spacing: 1px;
+                text-shadow: 0 0 4px rgba(255,217,102,0.6);
+                margin-bottom: 2px;
+            }
+            .digital-clock .clock-time {
+                font-size: 1.5rem;
+                font-weight: bold;
+                letter-spacing: 3px;
+                text-shadow: 0 0 6px rgba(0,255,102,0.8), 0 0 10px rgba(0,255,102,0.4);
+            }
+            .digital-clock .clock-time .colon { animation: blink 1s infinite; }
+            @keyframes blink { 0%, 50% { opacity: 1; } 51%, 100% { opacity: 0.25; } }
 
             /* 7개 일용직 양식 타일 */
             .form-tile-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; }

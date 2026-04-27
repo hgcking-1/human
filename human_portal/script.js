@@ -18,7 +18,29 @@ document.addEventListener('DOMContentLoaded', function() {
     checkExistingSession();
     refreshAdminPanel();
     initPurchaseChart();
+    startDigitalClock();
 });
+
+function startDigitalClock() {
+    const dateEl = document.getElementById('clock-date');
+    const timeEl = document.getElementById('clock-time');
+    if (!dateEl || !timeEl) return;
+    const days = ['일','월','화','수','목','금','토'];
+    const update = () => {
+        const now = new Date();
+        const yyyy = now.getFullYear();
+        const mm = String(now.getMonth() + 1).padStart(2, '0');
+        const dd = String(now.getDate()).padStart(2, '0');
+        const day = days[now.getDay()];
+        const hh = String(now.getHours()).padStart(2, '0');
+        const mi = String(now.getMinutes()).padStart(2, '0');
+        const ss = String(now.getSeconds()).padStart(2, '0');
+        dateEl.textContent = `${yyyy}.${mm}.${dd} (${day})`;
+        timeEl.innerHTML = `${hh}<span class="colon">:</span>${mi}<span class="colon">:</span>${ss}`;
+    };
+    update();
+    setInterval(update, 1000);
+}
 
 function buildFormTiles(prefix) {
     const grid = document.getElementById(prefix + '-form-grid');
