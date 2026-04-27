@@ -37,9 +37,107 @@ function startDigitalClock() {
         const ss = String(now.getSeconds()).padStart(2, '0');
         dateEl.textContent = `${yyyy}.${mm}.${dd} (${day})`;
         timeEl.innerHTML = `${hh}<span class="colon">:</span>${mi}<span class="colon">:</span>${ss}`;
+
+        // 미입금 카드의 시각 갱신 표시 (시계와 연동)
+        const tick = document.getElementById('h-unpaid-tick');
+        if (tick) tick.textContent = `${hh}:${mi}:${ss}`;
     };
     update();
     setInterval(update, 1000);
+
+    // 미입금 카드 데이터 로드 (페이지 진입 시 + 60초마다 갱신)
+    loadHumanUnpaidFromF7();
+    setInterval(loadHumanUnpaidFromF7, 60000);
+}
+
+// 미입금(휴먼) 데이터를 f7 시트에서 추출하여 카드에 표시
+async function loadHumanUnpaidFromF7() {
+    const card = document.getElementById('h-card-unpaid');
+    if (!card) return;
+
+    let sheets = null;
+    // 1) saved 우선
+    try {
+        const saved = JSON.parse(localStorage.getItem('data_human_f7'));
+        if (saved && saved.sheets) sheets = saved.sheets;
+    } catch (e) {}
+
+    // 2) saved 없으면 원본 fetch
+    if (!sheets || !sheets['미입금(휴먼)']) {
+        try {
+            const fileName = '2026.04-금전출납(세무용)_휴먼.xlsx';
+            const res = await fetch(encodeURIComponent(fileName));
+            if (res.ok) {
+                const buf = await res.arrayBuffer();
+                const wb = XLSX.read(new Uint8Array(buf), { type: 'array', dense: true });
+                sheets = sheets || {};
+                wb.SheetNames.forEach(s => {
+                    const ws = wb.Sheets[s];
+                    sheets[s] = XLSX.utils.sheet_to_json(ws, { header: 1 });
+                });
+            }
+        } catch (e) {}
+    }
+
+    if (!sheets || !sheets['미입금(휴먼)']) return;
+
+    const sheet = sheets['미입금(휴먼)'];
+    const unwrap = v => (v && typeof v === 'object' && v.isFormula) ? v.value : v;
+    const toNum = v => {
+        v = unwrap(v);
+        if (v === null || v === undefined || v === '') return 0;
+        return parseInt(v.toString().replace(/[^0-9-]/g, '')) || 0;
+    };
+
+    // 행2(엑셀 1-based)의 합계 SUM: D2=합계금액, E2=공급가액, F2=세액
+    const totalsRow = sheet[1] || [];
+    const totalAmount = toNum(totalsRow[3]);
+    const totalSupply = toNum(totalsRow[4]);
+    const totalTax = toNum(totalsRow[5]);
+
+    // 데이터 행 추출 (행4 헤더 다음, B열이 시리얼 날짜인 행만)
+    const items = [];
+    for (let i = 4; i < sheet.length; i++) {
+        const row = sheet[i] || [];
+        let dateVal = unwrap(row[1]);
+        if (typeof dateVal === 'string' && dateVal.trim() && !isNaN(dateVal)) dateVal = parseFloat(dateVal);
+        if (typeof dateVal !== 'number' || dateVal < 40000 || dateVal > 80000) continue;
+        const nameVal = unwrap(row[2]);
+        const amountVal = toNum(row[3]);
+        const date = new Date((dateVal - 25569) * 86400 * 1000);
+        const dateStr = date.toISOString().split('T')[0];
+        items.push({ date: dateStr, name: (nameVal || '').toString().trim(), amount: amountVal });
+    }
+    // 최근 일자가 위로
+    items.sort((a, b) => b.date.localeCompare(a.date));
+
+    // DOM 업데이트 — 합계는 마스킹 풀린 경우만 실제 값 표시
+    const session = JSON.parse(localStorage.getItem('userSession') || 'null');
+    const valEl = document.getElementById('h-val-unpaid');
+    if (valEl && session) {
+        valEl.classList.add('unmasked');
+        valEl.textContent = totalAmount.toLocaleString() + '원';
+    }
+    const supplyEl = document.getElementById('h-unpaid-supply');
+    const taxEl = document.getElementById('h-unpaid-tax');
+    const countEl = document.getElementById('h-unpaid-count');
+    const itemsEl = document.getElementById('h-unpaid-items');
+    const breakdown = document.getElementById('h-unpaid-breakdown');
+    if (supplyEl) supplyEl.textContent = totalSupply.toLocaleString() + '원';
+    if (taxEl) taxEl.textContent = totalTax.toLocaleString() + '원';
+    if (countEl) countEl.textContent = items.length.toLocaleString() + '건';
+    if (itemsEl) {
+        itemsEl.innerHTML = items.map(it =>
+            `<tr><td>${it.date}</td><td>${escapeHtml(it.name)}</td><td>${it.amount.toLocaleString()}원</td></tr>`
+        ).join('') || '<tr><td colspan="3" style="text-align:center;color:#999;padding:14px;">데이터 없음</td></tr>';
+    }
+    if (breakdown && session) breakdown.style.display = 'block';
+}
+
+function escapeHtml(s) {
+    return (s || '').toString()
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
 function buildFormTiles(prefix) {

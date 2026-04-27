@@ -131,10 +131,25 @@
                     <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));">
                         <!-- 1. 미입금 -->
                         <div class="glass-card dashboard-card" id="h-card-unpaid" style="grid-column: 1 / -1; border-top: 5px solid var(--danger-color);">
-                            <h3>🔴 미입금 현황 (휴먼)</h3>
+                            <h3>🔴 미입금 현황 (휴먼) <span id="h-unpaid-tick" style="font-family:'Courier New', monospace; font-size:0.7rem; color:#888; margin-left:8px;">--:--:--</span></h3>
                             <div class="stat-value masked-data" id="h-val-unpaid" style="color: var(--danger-color); font-size: 2.2rem;">●●●,●●●원</div>
+                            <div id="h-unpaid-breakdown" class="unpaid-breakdown" style="display:none;">
+                                <div class="unpaid-totals">
+                                    <span>📦 공급가액 합계 <b id="h-unpaid-supply">0원</b></span>
+                                    <span>💵 세액 합계 <b id="h-unpaid-tax">0원</b></span>
+                                    <span>🔢 건수 <b id="h-unpaid-count">0</b></span>
+                                </div>
+                                <div class="unpaid-items-wrap">
+                                    <table class="unpaid-items-table">
+                                        <thead>
+                                            <tr><th>작성일자</th><th>상호</th><th>합계금액</th></tr>
+                                        </thead>
+                                        <tbody id="h-unpaid-items"></tbody>
+                                    </table>
+                                </div>
+                            </div>
                             <p class="stat-label">로그인 후 확인 가능</p>
-                            <button class="btn-sm" onclick="openSecureDetail('human_unpaid')">상세보기/수정</button>
+                            <button class="btn-sm" onclick="openSecureDetail('human_f7')">상세보기/수정</button>
                         </div>
 
                         <!-- 2. 매출액 -->
@@ -298,6 +313,18 @@
             }
             .digital-clock .clock-time .colon { animation: blink 1s infinite; }
             @keyframes blink { 0%, 50% { opacity: 1; } 51%, 100% { opacity: 0.25; } }
+
+            /* 미입금 카드 breakdown */
+            .unpaid-breakdown { margin-top: 12px; text-align: left; padding: 0 8px; }
+            .unpaid-totals { display: flex; gap: 16px; flex-wrap: wrap; justify-content: center; padding: 8px 12px; background: #fef5f5; border-radius: 6px; margin-bottom: 10px; font-size: 0.78rem; color: #555; border: 1px solid #f5c6cb; }
+            .unpaid-totals b { color: #c0392b; font-weight: 700; margin-left: 4px; }
+            .unpaid-items-wrap { max-height: 220px; overflow-y: auto; border: 1px solid #ecf0f1; border-radius: 4px; }
+            .unpaid-items-table { width: 100%; border-collapse: collapse; font-size: 0.72rem; }
+            .unpaid-items-table th { position: sticky; top: 0; background: #34495e; color: white; padding: 6px 8px; text-align: left; font-weight: 600; }
+            .unpaid-items-table td { padding: 5px 8px; border-bottom: 1px solid #f0f0f0; }
+            .unpaid-items-table tr:nth-child(even) td { background: #fafafa; }
+            .unpaid-items-table tr:hover td { background: #fff3e0; }
+            .unpaid-items-table td:nth-child(3) { text-align: right; font-family: 'Roboto Mono', monospace; color: #c0392b; font-weight: 600; }
 
             /* 7개 일용직 양식 타일 */
             .form-tile-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; }
