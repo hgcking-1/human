@@ -52,6 +52,10 @@ function startDigitalClock() {
     // 매출액(2026) 카드 — f7 '휴먼' 시트에서 월별 자동 반영
     loadHumanSalesFromF7();
     setInterval(loadHumanSalesFromF7, 60000);
+
+    // 업체별 청구 통계 카드 — f1 요약 시트에서 자동 반영
+    loadHumanBillingFromF1();
+    setInterval(loadHumanBillingFromF1, 60000);
 }
 
 // 미입금(휴먼) 데이터를 f7 시트에서 추출하여 카드에 표시
@@ -220,6 +224,118 @@ async function loadHumanSalesFromF7() {
             })
         ];
         tbody.innerHTML = rows.join('');
+    }
+    if (wrap) wrap.style.display = 'block';
+}
+
+// 휴먼 업체별 청구 통계 — f1 요약 시트(예: '2026년 4월휴먼')에서 KM 업체별 통계 추출
+async function loadHumanBillingFromF1() {
+    const card = document.getElementById('h-card-purchase');
+    if (!card) return;
+
+    let sheets = null;
+    try {
+        const saved = JSON.parse(localStorage.getItem('data_human_f1'));
+        if (saved && saved.sheets) sheets = saved.sheets;
+    } catch (e) {}
+
+    if (!sheets) {
+        try {
+            const fileName = '2026.04 업체별(청구용)_KM 휴먼.xlsx';
+            const res = await fetch(encodeURIComponent(fileName));
+            if (res.ok) {
+                const buf = await res.arrayBuffer();
+                const wb = XLSX.read(new Uint8Array(buf), { type: 'array', dense: true });
+                sheets = {};
+                wb.SheetNames.forEach(s => {
+                    const ws = wb.Sheets[s];
+                    sheets[s] = XLSX.utils.sheet_to_json(ws, { header: 1 });
+                });
+            }
+        } catch (e) {}
+    }
+    if (!sheets) return;
+
+    // 요약 시트는 '2026년 N월휴먼' 패턴 — 월이 바뀌어도 자동 매칭
+    const summaryName = Object.keys(sheets).find(n => /\d+월휴먼\s*$/.test(n))
+                      || Object.keys(sheets).find(n => n.includes('휴먼'));
+    if (!summaryName || !sheets[summaryName]) return;
+    const sheet = sheets[summaryName];
+
+    const unwrap = v => (v && typeof v === 'object' && v.isFormula) ? v.value : v;
+    const toNum = v => {
+        v = unwrap(v);
+        if (v === null || v === undefined || v === '') return 0;
+        if (typeof v === 'number') return v;
+        return parseFloat(v.toString().replace(/[^0-9.\-]/g, '')) || 0;
+    };
+    const toStr = v => {
+        v = unwrap(v);
+        return (v === null || v === undefined) ? '' : v.toString().trim();
+    };
+
+    // 헤더는 row index 1: 주차|업체|지급액|청구액(세금계산서)|차액|결재|청구(기존)|청구액(당월)|미청구|전월이월
+    // 데이터는 index 2부터, '계' 행 만나면 종료
+    const vendors = [];
+    const totals = { current: 0, cumulative: 0, unpaid: 0 };
+    for (let i = 2; i < sheet.length; i++) {
+        const row = sheet[i] || [];
+        const colA = toStr(row[0]);
+        const name = toStr(row[1]);
+        if (colA === '계' || colA.startsWith('합계')) break;
+        if (!name) continue;
+
+        const cumulative = toNum(row[3]); // 청구액(세금계산서)
+        const current = toNum(row[7]);     // 청구액(당월)
+        const unpaid = toNum(row[9]);      // 전월이월 (= 미입금 carryover)
+        const status = toStr(row[5]);      // 결재 (예: 한달(25일))
+
+        // 빈 행/모두 0인 행은 스킵
+        if (cumulative === 0 && current === 0 && unpaid === 0) continue;
+
+        vendors.push({ name, current, cumulative, unpaid, status });
+        totals.current += current;
+        totals.cumulative += cumulative;
+        totals.unpaid += unpaid;
+    }
+    if (vendors.length === 0) return;
+
+    const tickEl = document.getElementById('h-billing-tick');
+    if (tickEl) {
+        const n = new Date();
+        const hh = String(n.getHours()).padStart(2, '0');
+        const mi = String(n.getMinutes()).padStart(2, '0');
+        const ss = String(n.getSeconds()).padStart(2, '0');
+        tickEl.textContent = `${hh}:${mi}:${ss}`;
+    }
+
+    const session = JSON.parse(localStorage.getItem('userSession') || 'null');
+    const valEl = document.getElementById('h-val-purchase');
+    if (valEl && session) {
+        valEl.classList.add('unmasked');
+        valEl.innerHTML = `<div class="stat-value" style="font-size: 1.8rem;">${totals.current.toLocaleString()}원</div>`;
+    }
+
+    if (!session) return;
+
+    const cur = document.getElementById('h-billing-current');
+    const cum = document.getElementById('h-billing-cumulative');
+    const unp = document.getElementById('h-billing-unpaid');
+    const body = document.getElementById('h-billing-body');
+    const wrap = document.getElementById('h-billing-breakdown');
+    if (cur) cur.textContent = totals.current.toLocaleString() + '원';
+    if (cum) cum.textContent = totals.cumulative.toLocaleString() + '원';
+    if (unp) unp.textContent = totals.unpaid.toLocaleString() + '원';
+    if (body) {
+        body.innerHTML = vendors.map(v => `
+            <tr>
+                <td>${escapeHtml(v.name)}</td>
+                <td>${v.current.toLocaleString()}</td>
+                <td>${v.cumulative.toLocaleString()}</td>
+                <td class="${v.unpaid > 0 ? 'has-unpaid' : ''}">${v.unpaid.toLocaleString()}</td>
+                <td>${escapeHtml(v.status)}</td>
+            </tr>
+        `).join('');
     }
     if (wrap) wrap.style.display = 'block';
 }
@@ -523,16 +639,20 @@ function applyPermissions(grade, name) {
             }
         }
 
-        // 3. 매입계산서
+        // 3. 매입계산서 — 휴먼은 f1 업체별 청구 통계로 대체(loadHumanBillingFromF1), 채움은 기존 로직 유지
         const purchaseEl = document.getElementById(`${prefix}-val-purchase`);
         if (purchaseEl) {
             purchaseEl.classList.add('unmasked');
-            const saved = JSON.parse(localStorage.getItem(`data_${companyKey}_purchase`));
-            if (saved && saved.data && saved.data.length > 0) {
-                const total = saved.data.reduce((acc, row) => acc + (parseInt(row[2].toString().replace(/[^0-9]/g, '')) || 0), 0);
-                purchaseEl.innerHTML = `<div class="stat-value" style="font-size: 1.8rem;">${total.toLocaleString()}원</div>`;
+            if (prefix === 'h') {
+                loadHumanBillingFromF1();
             } else {
-                purchaseEl.innerHTML = `<div class="stat-value" style="font-size: 1.8rem;">${prefix === 'h' ? '425,110,200원' : '210,550,000원'}</div>`;
+                const saved = JSON.parse(localStorage.getItem(`data_${companyKey}_purchase`));
+                if (saved && saved.data && saved.data.length > 0) {
+                    const total = saved.data.reduce((acc, row) => acc + (parseInt(row[2].toString().replace(/[^0-9]/g, '')) || 0), 0);
+                    purchaseEl.innerHTML = `<div class="stat-value" style="font-size: 1.8rem;">${total.toLocaleString()}원</div>`;
+                } else {
+                    purchaseEl.innerHTML = `<div class="stat-value" style="font-size: 1.8rem;">210,550,000원</div>`;
+                }
             }
         }
 

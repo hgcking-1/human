@@ -167,13 +167,29 @@
                             <button class="btn-sm" onclick="openSecureDetail('human_f7')">상세보기/수정</button>
                         </div>
 
-                        <!-- 3. 매입계산서 -->
+                        <!-- 3. 업체별 청구 통계 (KM·휴먼) — 청구서 작성용 / 미입금 확인 -->
                         <div class="glass-card dashboard-card" id="h-card-purchase" style="border-top: 5px solid #9b59b6;">
-                            <h3>📑 매입계산서</h3>
+                            <h3>📑 업체별 청구 통계 (KM·휴먼) <span id="h-billing-tick" style="font-family:'Courier New', monospace; font-size:0.7rem; color:#888; margin-left:8px;">--:--:--</span></h3>
                             <div class="masked-data" id="h-val-purchase" style="min-height: 80px; display: flex; align-items: center; justify-content: center;">
                                 <div class="stat-value" style="font-size: 1.8rem;">●●●,●●●원</div>
                             </div>
-                            <button class="btn-sm" onclick="openSecureDetail('human_purchase')">상세보기</button>
+                            <div id="h-billing-breakdown" class="billing-breakdown" style="display:none;">
+                                <div class="billing-totals">
+                                    <span>📅 당월 청구 <b id="h-billing-current">0원</b></span>
+                                    <span>📊 누적 청구 <b id="h-billing-cumulative">0원</b></span>
+                                    <span class="alert">⚠️ 미입금 <b id="h-billing-unpaid">0원</b></span>
+                                </div>
+                                <div class="billing-wrap">
+                                    <table class="billing-table">
+                                        <thead>
+                                            <tr><th>업체</th><th>당월</th><th>누적</th><th>미입금</th><th>결재</th></tr>
+                                        </thead>
+                                        <tbody id="h-billing-body"></tbody>
+                                    </table>
+                                </div>
+                                <p class="billing-note">기준: 업체별(청구용·KM 휴먼) 요약 시트 · 미입금 = 전월이월 잔액</p>
+                            </div>
+                            <button class="btn-sm" onclick="openSecureDetail('human_f1')">상세보기/수정</button>
                         </div>
 
                         <!-- 은행 계좌 현황 -->
@@ -344,6 +360,25 @@
             .sales-monthly-table tr:nth-child(even) td { background: #fafafa; }
             .sales-monthly-table tr.month-zero td { color: #bbb; }
             .sales-monthly-table tr.total-row td { background: #fff8e1 !important; font-weight: 700; color: #d35400; border-top: 2px solid #d35400; }
+
+            /* 업체별 청구 통계 (h-card-purchase) */
+            .billing-breakdown { margin-top: 12px; text-align: left; padding: 0 4px; }
+            .billing-totals { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; padding: 8px 12px; background: #f4ecf7; border-radius: 6px; margin-bottom: 10px; font-size: 0.78rem; color: #555; border: 1px solid #d2b4de; }
+            .billing-totals b { color: #6c3483; font-weight: 700; margin-left: 4px; font-family: 'Roboto Mono', monospace; }
+            .billing-totals span.alert b { color: #c0392b; }
+            .billing-wrap { max-height: 240px; overflow-y: auto; border: 1px solid #ecf0f1; border-radius: 4px; }
+            .billing-table { width: 100%; border-collapse: collapse; font-size: 0.72rem; }
+            .billing-table th { position: sticky; top: 0; background: #6c3483; color: white; padding: 6px 8px; text-align: center; font-weight: 600; }
+            .billing-table td { padding: 5px 8px; border-bottom: 1px solid #f0f0f0; }
+            .billing-table tr:nth-child(even) td { background: #fafafa; }
+            .billing-table tr:hover td { background: #f4ecf7; }
+            .billing-table td:nth-child(1) { font-weight: 600; color: #2c3e50; }
+            .billing-table td:nth-child(2),
+            .billing-table td:nth-child(3),
+            .billing-table td:nth-child(4) { text-align: right; font-family: 'Roboto Mono', monospace; }
+            .billing-table td:nth-child(4).has-unpaid { color: #c0392b; font-weight: 700; }
+            .billing-table td:nth-child(5) { text-align: center; color: #555; font-size: 0.68rem; }
+            .billing-note { font-size: 0.65rem; color: #95a5a6; margin: 6px 4px 0; text-align: right; }
 
             /* 7개 일용직 양식 타일 */
             .form-tile-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; }
