@@ -447,6 +447,156 @@ async function loadHumanBankFromF7() {
         }).join('');
     }
     if (wrap) wrap.style.display = 'block';
+
+    // 거래 데이터 파싱 (시재 시트 row 4부터: 계좌·날짜·적요·입금·출금·제외항목)
+    // → 주간 변동 추이 + 은행별 주요 매출 기업
+    const txns = [];
+    let minSerial = Infinity, maxSerial = -Infinity;
+    for (let i = 4; i < sheet.length; i++) {
+        const r = sheet[i] || [];
+        const bankName = toStr(r[0]);
+        if (!bankName) continue;
+        let serial = unwrap(r[1]);
+        if (typeof serial === 'string' && serial.trim() && !isNaN(serial)) serial = parseFloat(serial);
+        if (typeof serial !== 'number' || serial < 30000 || serial > 80000) continue;
+        const dep = toNum(r[3]);
+        const wd = toNum(r[4]);
+        if (dep === 0 && wd === 0) continue;
+        if (serial < minSerial) minSerial = serial;
+        if (serial > maxSerial) maxSerial = serial;
+        txns.push({
+            bank: bankName,
+            serial,
+            desc: toStr(r[2]),
+            dep,
+            wd,
+        });
+    }
+
+    renderHumanBankTrend(banks, txns, minSerial, maxSerial);
+    renderHumanBankTopCompanies(banks, txns, minSerial, maxSerial);
+}
+
+// 주간 변동 추이 — 데이터 기간을 7일 단위로 분할(W1=days 1-7, ...)하여 은행별 순변동 표시
+function renderHumanBankTrend(banks, txns, minSerial, maxSerial) {
+    const wrap = document.getElementById('h-bank-trend-wrap');
+    const head = document.getElementById('h-bank-trend-head');
+    const body = document.getElementById('h-bank-trend-body');
+    const period = document.getElementById('h-bank-trend-period');
+    if (!wrap || !head || !body) return;
+    if (!txns.length) { wrap.style.display = 'none'; return; }
+
+    // 기간 표기 (yy-mm-dd ~ yy-mm-dd) — 가장 큰 serial이 속한 달 기준 1~말일을 주차로 분할
+    const maxDate = new Date((maxSerial - 25569) * 86400 * 1000);
+    const year = maxDate.getFullYear();
+    const month = maxDate.getMonth(); // 0-based
+    const monthEnd = new Date(year, month + 1, 0).getDate();
+    const monthStart = new Date(year, month, 1);
+    const monthStartSerial = Math.round(monthStart.getTime() / 86400000) + 25569;
+
+    // 주차 정의: W1=1-7, W2=8-14, W3=15-21, W4=22-28, W5=29~말일
+    const weeks = [];
+    for (let s = 1; s <= monthEnd; s += 7) {
+        const e = Math.min(s + 6, monthEnd);
+        weeks.push({ label: `W${weeks.length + 1}`, range: `${s}~${e}일`, startSerial: monthStartSerial + (s - 1), endSerial: monthStartSerial + (e - 1) });
+    }
+
+    if (period) {
+        const yy = String(year).slice(2);
+        const mm = String(month + 1).padStart(2, '0');
+        period.textContent = `(${yy}-${mm}월 기준 · 거래 ${txns.length}건)`;
+    }
+
+    // 헤더
+    head.innerHTML = `<tr><th>은행</th>${weeks.map(w => `<th>${w.label}<br><span style="font-weight:400;font-size:0.66rem;opacity:0.85;">${w.range}</span></th>`).join('')}<th>월계</th></tr>`;
+
+    // 은행 순서 = 잔액 카드와 동일 (banks 배열 순서)
+    const bankNames = banks.map(b => b.name);
+    // 시재 거래에는 등장하지만 잔액 라벨에는 없는 은행도 보존
+    txns.forEach(t => { if (!bankNames.includes(t.bank)) bankNames.push(t.bank); });
+
+    const fmt = v => (v >= 0 ? '+' : '') + v.toLocaleString();
+    const cls = v => v > 0 ? 'pos' : (v < 0 ? 'neg' : 'zero');
+    const colTotals = weeks.map(() => 0);
+    let grandTotal = 0;
+
+    const rows = bankNames.map(name => {
+        const cells = weeks.map((w, idx) => {
+            let net = 0;
+            txns.forEach(t => {
+                if (t.bank === name && t.serial >= w.startSerial && t.serial <= w.endSerial) {
+                    net += t.dep - t.wd;
+                }
+            });
+            colTotals[idx] += net;
+            return `<td class="${cls(net)}">${net === 0 ? '—' : fmt(net)}</td>`;
+        });
+        const rowTotal = txns.filter(t => t.bank === name).reduce((s, t) => s + t.dep - t.wd, 0);
+        grandTotal += rowTotal;
+        return `<tr><td>${escapeHtml(name)}</td>${cells.join('')}<td class="${cls(rowTotal)}">${rowTotal === 0 ? '—' : fmt(rowTotal)}</td></tr>`;
+    });
+
+    // 주별 합계 행
+    const totalCells = colTotals.map(v => `<td class="${cls(v)}">${v === 0 ? '—' : fmt(v)}</td>`).join('');
+    rows.push(`<tr class="row-total"><td>전체 합계</td>${totalCells}<td class="${cls(grandTotal)}">${grandTotal === 0 ? '—' : fmt(grandTotal)}</td></tr>`);
+
+    body.innerHTML = rows.join('');
+    wrap.style.display = 'block';
+}
+
+// 은행별 주요 매출 기업 — 적요별 입금액 합계 상위 5개
+function renderHumanBankTopCompanies(banks, txns, minSerial, maxSerial) {
+    const wrap = document.getElementById('h-bank-top-wrap');
+    const grid = document.getElementById('h-bank-top-grid');
+    const period = document.getElementById('h-bank-top-period');
+    if (!wrap || !grid) return;
+    if (!txns.length) { wrap.style.display = 'none'; return; }
+
+    if (period && isFinite(minSerial) && isFinite(maxSerial)) {
+        const fmtD = s => {
+            const d = new Date((s - 25569) * 86400 * 1000);
+            return `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        };
+        period.textContent = `(${fmtD(minSerial)} ~ ${fmtD(maxSerial)})`;
+    }
+
+    const bankNames = banks.map(b => b.name);
+    txns.forEach(t => { if (!bankNames.includes(t.bank)) bankNames.push(t.bank); });
+
+    const cards = bankNames.map(name => {
+        // 해당 은행의 입금만 적요별 합산
+        const byDesc = {};
+        txns.forEach(t => {
+            if (t.bank !== name || t.dep <= 0) return;
+            const key = t.desc || '(미기재)';
+            if (!byDesc[key]) byDesc[key] = { sum: 0, count: 0 };
+            byDesc[key].sum += t.dep;
+            byDesc[key].count++;
+        });
+        const sorted = Object.entries(byDesc).sort((a, b) => b[1].sum - a[1].sum);
+        const top = sorted.slice(0, 5);
+        const totalSum = sorted.reduce((s, [, v]) => s + v.sum, 0);
+
+        if (top.length === 0) {
+            return `<div class="bank-top-card empty">
+                <h5><span class="bt-bank">${escapeHtml(name)}</span><span class="bt-sum">입금 없음</span></h5>
+                <div class="bt-empty">해당 기간 입금 내역 없음</div>
+            </div>`;
+        }
+        const items = top.map(([desc, v]) => `
+            <li>
+                <span class="bt-name" title="${escapeHtml(desc)}">${escapeHtml(desc)}</span>
+                <span class="bt-amt">${v.sum.toLocaleString()}<span class="bt-cnt">×${v.count}</span></span>
+            </li>
+        `).join('');
+        return `<div class="bank-top-card">
+            <h5><span class="bt-bank">${escapeHtml(name)}</span><span class="bt-sum">∑ ${totalSum.toLocaleString()}원</span></h5>
+            <ol>${items}</ol>
+        </div>`;
+    });
+
+    grid.innerHTML = cards.join('');
+    wrap.style.display = 'block';
 }
 
 // 휴먼 분기별 부가세 — f7 '휴먼' 시트의 매출/매입 공급가액을 연·분기로 그룹화하여 직접 계산
