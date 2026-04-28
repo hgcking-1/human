@@ -56,6 +56,10 @@ function startDigitalClock() {
     // 업체별 청구 통계 카드 — f1 요약 시트에서 자동 반영
     loadHumanBillingFromF1();
     setInterval(loadHumanBillingFromF1, 60000);
+
+    // 은행 계좌 현황 카드 — f7 '시재' 시트에서 자동 반영
+    loadHumanBankFromF7();
+    setInterval(loadHumanBankFromF7, 60000);
 }
 
 // 미입금(휴먼) 데이터를 f7 시트에서 추출하여 카드에 표시
@@ -336,6 +340,103 @@ async function loadHumanBillingFromF1() {
                 <td>${escapeHtml(v.status)}</td>
             </tr>
         `).join('');
+    }
+    if (wrap) wrap.style.display = 'block';
+}
+
+// 휴먼 은행 계좌 현황 — f7 '시재' 시트 row 0의 (은행명, 잔액) 페어를 추출
+async function loadHumanBankFromF7() {
+    const card = document.getElementById('h-card-bank');
+    if (!card) return;
+
+    let sheets = null;
+    try {
+        const saved = JSON.parse(localStorage.getItem('data_human_f7'));
+        if (saved && saved.sheets) sheets = saved.sheets;
+    } catch (e) {}
+
+    if (!sheets || !sheets['시재']) {
+        try {
+            const fileName = '2026.04-금전출납(세무용)_휴먼.xlsx';
+            const res = await fetch(encodeURIComponent(fileName));
+            if (res.ok) {
+                const buf = await res.arrayBuffer();
+                const wb = XLSX.read(new Uint8Array(buf), { type: 'array', dense: true });
+                sheets = sheets || {};
+                wb.SheetNames.forEach(s => {
+                    const ws = wb.Sheets[s];
+                    sheets[s] = XLSX.utils.sheet_to_json(ws, { header: 1 });
+                });
+            }
+        } catch (e) {}
+    }
+    if (!sheets || !sheets['시재']) return;
+
+    const sheet = sheets['시재'];
+    const unwrap = v => (v && typeof v === 'object' && v.isFormula) ? v.value : v;
+    const toNum = v => {
+        v = unwrap(v);
+        if (v === null || v === undefined || v === '') return 0;
+        if (typeof v === 'number') return v;
+        return parseFloat(v.toString().replace(/[^0-9.\-]/g, '')) || 0;
+    };
+    const toStr = v => {
+        v = unwrap(v);
+        return (v === null || v === undefined) ? '' : v.toString().trim();
+    };
+
+    // Row 0 형식: 합계 | <total> | 기업 | <amt> | 하나 | <amt> | 우리 | <amt> | 신한 | <amt> | 농협 | <amt> | 국민 | <amt>
+    const row0 = sheet[0] || [];
+    let total = null;
+    const banks = [];
+    for (let i = 0; i < row0.length - 1; i += 2) {
+        const label = toStr(row0[i]);
+        if (!label) continue;
+        const amount = toNum(row0[i + 1]);
+        if (label === '합계') {
+            total = amount;
+        } else {
+            banks.push({ name: label, balance: amount });
+        }
+    }
+    if (banks.length === 0) return;
+
+    // 합계 셀이 비어있으면 은행 잔액 직접 합산
+    if (total === null || total === 0) {
+        total = banks.reduce((s, b) => s + b.balance, 0);
+    }
+
+    const tickEl = document.getElementById('h-bank-tick');
+    if (tickEl) {
+        const n = new Date();
+        const hh = String(n.getHours()).padStart(2, '0');
+        const mi = String(n.getMinutes()).padStart(2, '0');
+        const ss = String(n.getSeconds()).padStart(2, '0');
+        tickEl.textContent = `${hh}:${mi}:${ss}`;
+    }
+
+    const session = JSON.parse(localStorage.getItem('userSession') || 'null');
+    const valEl = document.getElementById('h-val-bank');
+    if (valEl && session) {
+        valEl.classList.add('unmasked');
+        valEl.textContent = total.toLocaleString() + '원';
+    }
+    if (!session) return;
+
+    const wrap = document.getElementById('h-bank-wrap');
+    const tbody = document.getElementById('h-bank-body');
+    if (tbody) {
+        tbody.innerHTML = banks.map(b => {
+            let cls = '';
+            if (b.balance === 0) cls = 'zero-bal';
+            else if (b.balance < 0) cls = 'neg-bal';
+            return `
+                <tr>
+                    <td>${escapeHtml(b.name)}</td>
+                    <td class="${cls}">${b.balance.toLocaleString()}</td>
+                </tr>
+            `;
+        }).join('');
     }
     if (wrap) wrap.style.display = 'block';
 }
@@ -670,16 +771,20 @@ function applyPermissions(grade, name) {
             }
         }
 
-        // 은행 계좌 현황
+        // 은행 계좌 현황 — 휴먼은 f7 '시재'에서 자동 반영(loadHumanBankFromF7), 채움은 기존 로직 유지
         const bankEl = document.getElementById(`${prefix}-val-bank`);
         if (bankEl) {
             bankEl.classList.add('unmasked');
-            const saved = JSON.parse(localStorage.getItem(`data_${companyKey}_bank`));
-            if (saved && saved.data && saved.data.length > 0) {
-                const total = saved.data.reduce((acc, row) => acc + (parseInt(row[1].toString().replace(/[^0-9]/g, '')) || 0), 0);
-                bankEl.textContent = total.toLocaleString() + '원';
+            if (prefix === 'h') {
+                loadHumanBankFromF7();
             } else {
-                bankEl.textContent = prefix === 'h' ? '542,110,000원' : '125,440,000원';
+                const saved = JSON.parse(localStorage.getItem(`data_${companyKey}_bank`));
+                if (saved && saved.data && saved.data.length > 0) {
+                    const total = saved.data.reduce((acc, row) => acc + (parseInt(row[1].toString().replace(/[^0-9]/g, '')) || 0), 0);
+                    bankEl.textContent = total.toLocaleString() + '원';
+                } else {
+                    bankEl.textContent = '125,440,000원';
+                }
             }
         }
 

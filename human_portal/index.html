@@ -194,9 +194,18 @@
 
                         <!-- 은행 계좌 현황 -->
                         <div class="glass-card dashboard-card" id="h-card-bank" style="border-top: 5px solid #2980b9;">
-                            <h3>🏦 은행 계좌 현황</h3>
-                            <div class="stat-value masked-data" id="h-val-bank" style="color: #2980b9; font-size: 1.5rem;">●●●,●●●원</div>
-                            <button class="btn-sm" onclick="openSecureDetail('human_bank')">계좌관리</button>
+                            <h3>🏦 은행 계좌 현황 <span id="h-bank-tick" style="font-family:'Courier New', monospace; font-size:0.7rem; color:#888; margin-left:8px;">--:--:--</span></h3>
+                            <div class="stat-value masked-data" id="h-val-bank" style="color: #2980b9; font-size: 1.8rem;">●●●,●●●원</div>
+                            <div id="h-bank-wrap" class="bank-wrap" style="display:none;">
+                                <table class="bank-table">
+                                    <thead>
+                                        <tr><th>은행</th><th>현재 잔액 (원)</th></tr>
+                                    </thead>
+                                    <tbody id="h-bank-body"></tbody>
+                                </table>
+                                <p class="bank-note">기준: 금전출납(세무용·휴먼) 시재 시트 · 자동 갱신</p>
+                            </div>
+                            <button class="btn-sm" onclick="openSecureDetail('human_f7')">계좌관리</button>
                         </div>
 
                         <!-- 4. 현재 잔액 장부 -->
@@ -379,6 +388,21 @@
             .billing-table td:nth-child(4).has-unpaid { color: #c0392b; font-weight: 700; }
             .billing-table td:nth-child(5) { text-align: center; color: #555; font-size: 0.68rem; }
             .billing-note { font-size: 0.65rem; color: #95a5a6; margin: 6px 4px 0; text-align: right; }
+
+            /* 은행 계좌 현황 (h-card-bank) — 가독성 강화 */
+            .bank-wrap { margin-top: 10px; margin-bottom: 10px; border: 1px solid #d6eaf8; border-radius: 6px; overflow: hidden; background: #fbfcfe; }
+            .bank-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+            .bank-table th { background: #2980b9; color: white; padding: 8px 12px; text-align: center; font-weight: 600; letter-spacing: 0.3px; }
+            .bank-table td { padding: 9px 14px; border-bottom: 1px solid #ecf0f1; }
+            .bank-table tr:last-child td { border-bottom: none; }
+            .bank-table tr:nth-child(even) td { background: #f4faff; }
+            .bank-table tr:hover td { background: #d6eaf8; }
+            .bank-table td:nth-child(1) { font-weight: 700; color: #2c3e50; width: 40%; }
+            .bank-table td:nth-child(1)::before { content: '🏦 '; opacity: 0.5; margin-right: 4px; }
+            .bank-table td:nth-child(2) { text-align: right; font-family: 'Roboto Mono', monospace; font-weight: 600; font-size: 0.92rem; color: #1f618d; letter-spacing: 0.2px; }
+            .bank-table td:nth-child(2).zero-bal { color: #bbb; font-weight: 400; }
+            .bank-table td:nth-child(2).neg-bal { color: #c0392b; }
+            .bank-note { font-size: 0.65rem; color: #95a5a6; margin: 6px 4px 0; text-align: right; }
 
             /* 7개 일용직 양식 타일 */
             .form-tile-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; }
