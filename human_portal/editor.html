@@ -4,6 +4,25 @@
     <meta charset="UTF-8">
     <title>HUMAN - 데이터 편집기</title>
     <link rel="stylesheet" href="style.css">
+    <script src="security.js"></script>
+    <style>
+        /* 보안: 인쇄 차단 */
+        @media print {
+            body * { visibility: hidden !important; }
+            html::before, body::before {
+                content: '🚫 인쇄가 금지된 자료입니다.';
+                visibility: visible !important;
+                position: fixed; inset: 0;
+                display: flex; align-items: center; justify-content: center;
+                background: white; color: #c0392b; font-size: 24px; font-weight: 700;
+                padding: 40px;
+            }
+        }
+        /* 보안: 선택·드래그 기본 차단 (편집 영역 제외) */
+        body, body * { -webkit-user-select: none; -moz-user-select: none; user-select: none; -webkit-user-drag: none; -webkit-touch-callout: none; }
+        input, textarea, select, [contenteditable="true"] { -webkit-user-select: text !important; -moz-user-select: text !important; user-select: text !important; }
+        img, video { -webkit-user-drag: none; user-drag: none; }
+    </style>
     <style>
         body { background: #f0f2f5; padding: 1rem; font-family: 'Pretendard', -apple-system, sans-serif; }
         .editor-container { max-width: 98%; margin: 0 auto; background: white; padding: 1.5rem; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); max-height: 95vh; display: flex; flex-direction: column; overflow: hidden; }

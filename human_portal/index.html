@@ -8,6 +8,25 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css" />
+    <script src="security.js"></script>
+    <style>
+        /* 보안: 인쇄 차단 */
+        @media print {
+            body * { visibility: hidden !important; }
+            html::before, body::before {
+                content: '🚫 인쇄가 금지된 자료입니다 — 이 사이트는 자료의 인쇄/저장을 허용하지 않습니다.';
+                visibility: visible !important;
+                position: fixed; inset: 0;
+                display: flex; align-items: center; justify-content: center;
+                background: white; color: #c0392b; font-size: 24px; font-weight: 700;
+                text-align: center; padding: 40px;
+            }
+        }
+        /* 보안: 텍스트/이미지 선택·드래그 차단 (입력 영역 제외) */
+        body, body * { -webkit-user-select: none; -moz-user-select: none; user-select: none; -webkit-user-drag: none; -webkit-touch-callout: none; }
+        input, textarea, [contenteditable="true"] { -webkit-user-select: text !important; -moz-user-select: text !important; user-select: text !important; }
+        img, video { -webkit-user-drag: none; user-drag: none; pointer-events: none; }
+    </style>
 </head>
 <script>
     // 브라우저 감지 로직
