@@ -64,6 +64,10 @@ function startDigitalClock() {
     // 근무자 통계 카드 — f2 일자별(지급용) 시트에서 자동 반영
     loadHumanWorkerFromF2();
     setInterval(loadHumanWorkerFromF2, 60000);
+
+    // 분기별 부가세 카드 — f7 '휴먼' 시트에서 직접 계산
+    loadHumanVATFromF7();
+    setInterval(loadHumanVATFromF7, 60000);
 }
 
 // 미입금(휴먼) 데이터를 f7 시트에서 추출하여 카드에 표시
@@ -443,6 +447,171 @@ async function loadHumanBankFromF7() {
         }).join('');
     }
     if (wrap) wrap.style.display = 'block';
+}
+
+// 휴먼 분기별 부가세 — f7 '휴먼' 시트의 매출/매입 공급가액을 연·분기로 그룹화하여 직접 계산
+let _humanVATData = null; // { byYear: { 2026: { Q1: {...}, ..., total: {...} }, ... } }
+
+async function loadHumanVATFromF7() {
+    const card = document.getElementById('h-card-bal-2026');
+    if (!card) return;
+
+    let sheets = null;
+    try {
+        const saved = JSON.parse(localStorage.getItem('data_human_f7'));
+        if (saved && saved.sheets) sheets = saved.sheets;
+    } catch (e) {}
+
+    if (!sheets || !sheets['휴먼']) {
+        try {
+            const fileName = '2026.04-금전출납(세무용)_휴먼.xlsx';
+            const res = await fetch(encodeURIComponent(fileName));
+            if (res.ok) {
+                const buf = await res.arrayBuffer();
+                const wb = XLSX.read(new Uint8Array(buf), { type: 'array', dense: true });
+                sheets = sheets || {};
+                wb.SheetNames.forEach(s => {
+                    const ws = wb.Sheets[s];
+                    sheets[s] = XLSX.utils.sheet_to_json(ws, { header: 1 });
+                });
+            }
+        } catch (e) {}
+    }
+    if (!sheets || !sheets['휴먼']) return;
+
+    const sheet = sheets['휴먼'];
+    const unwrap = v => (v && typeof v === 'object' && v.isFormula) ? v.value : v;
+    const toNum = v => {
+        v = unwrap(v);
+        if (v === null || v === undefined || v === '') return 0;
+        if (typeof v === 'number') return v;
+        return parseFloat(v.toString().replace(/[^0-9.\-]/g, '')) || 0;
+    };
+
+    // 헤더 row 2 (1-based 3). 데이터는 index 3부터.
+    // col: 0=작성일자 | 1=상호 | 2=매출합계 | 3=매출공급가액 | 4=매출세액 | 5=매입합계 | 6=매입공급가액 | 7=매입세액
+    const byYear = {}; // year -> { Q1, Q2, Q3, Q4, total }
+    const ensureYear = y => {
+        if (!byYear[y]) {
+            byYear[y] = {
+                Q1: { sales: 0, purchase: 0, vat: 0, count: 0 },
+                Q2: { sales: 0, purchase: 0, vat: 0, count: 0 },
+                Q3: { sales: 0, purchase: 0, vat: 0, count: 0 },
+                Q4: { sales: 0, purchase: 0, vat: 0, count: 0 },
+                total: { sales: 0, purchase: 0, vat: 0, count: 0 }
+            };
+        }
+        return byYear[y];
+    };
+
+    for (let i = 3; i < sheet.length; i++) {
+        const row = sheet[i] || [];
+        let serial = unwrap(row[0]);
+        if (typeof serial === 'string' && serial.trim() && !isNaN(serial)) serial = parseFloat(serial);
+        if (typeof serial !== 'number' || serial < 30000 || serial > 80000) continue;
+
+        const date = new Date((serial - 25569) * 86400 * 1000);
+        const year = date.getFullYear();
+        const month = date.getMonth() + 1;
+        const q = 'Q' + (Math.floor((month - 1) / 3) + 1);
+
+        const salesSupply = toNum(row[3]);
+        const purchaseSupply = toNum(row[6]);
+        if (salesSupply === 0 && purchaseSupply === 0) continue;
+
+        const yObj = ensureYear(year);
+        yObj[q].sales += salesSupply;
+        yObj[q].purchase += purchaseSupply;
+        yObj[q].count++;
+        yObj.total.sales += salesSupply;
+        yObj.total.purchase += purchaseSupply;
+        yObj.total.count++;
+    }
+
+    // 분기/연 부가세 = (sales - purchase) × 10%
+    Object.keys(byYear).forEach(y => {
+        ['Q1', 'Q2', 'Q3', 'Q4', 'total'].forEach(k => {
+            const x = byYear[y][k];
+            x.vat = Math.round((x.sales - x.purchase) * 0.1);
+        });
+    });
+
+    _humanVATData = { byYear };
+
+    // 시계
+    const tickEl = document.getElementById('h-vat-tick');
+    if (tickEl) {
+        const n = new Date();
+        tickEl.textContent = `${String(n.getHours()).padStart(2, '0')}:${String(n.getMinutes()).padStart(2, '0')}:${String(n.getSeconds()).padStart(2, '0')}`;
+    }
+
+    // 카드 상단 합계 — 최신 연도(가장 큰 연도) 부가세 합계
+    const years = Object.keys(byYear).map(Number).sort((a, b) => b - a);
+    const latestYear = years[0];
+    const session = JSON.parse(localStorage.getItem('userSession') || 'null');
+    const valEl = document.getElementById('h-val-bal-2026');
+    if (valEl && session && latestYear) {
+        valEl.classList.add('unmasked');
+        const latestVAT = byYear[latestYear].total.vat;
+        const sign = latestVAT < 0 ? '환급 ' : '';
+        valEl.textContent = `${latestYear}년 ${sign}${Math.abs(latestVAT).toLocaleString()}원`;
+    }
+    if (!session) return;
+
+    // 연도 select 채우기 (현재 선택값 유지)
+    const sel = document.getElementById('h-vat-year');
+    if (sel) {
+        const prev = sel.value;
+        sel.innerHTML = years.map(y => `<option value="${y}">${y}년</option>`).join('');
+        if (prev && years.includes(parseInt(prev))) {
+            sel.value = prev;
+        } else {
+            sel.value = String(latestYear);
+        }
+    }
+    renderVATTable();
+
+    const wrap = document.getElementById('h-vat-wrap');
+    if (wrap) wrap.style.display = 'block';
+}
+
+function renderVATTable() {
+    const body = document.getElementById('h-vat-body');
+    const sel = document.getElementById('h-vat-year');
+    if (!body || !sel || !_humanVATData) return;
+    const year = parseInt(sel.value);
+    const yObj = _humanVATData.byYear[year];
+    if (!yObj) {
+        body.innerHTML = '<tr><td colspan="4" style="text-align:center;color:#999;padding:14px;">데이터 없음</td></tr>';
+        return;
+    }
+    const fmt = v => v.toLocaleString();
+    const rangeMap = { Q1: '1~3월', Q2: '4~6월', Q3: '7~9월', Q4: '10~12월' };
+    const rows = ['Q1', 'Q2', 'Q3', 'Q4'].map(q => {
+        const x = yObj[q];
+        const empty = x.count === 0;
+        const cls = empty ? 'empty-q' : '';
+        const vatCls = x.vat > 0 ? 'pos' : (x.vat < 0 ? 'neg' : 'zero');
+        return `
+            <tr class="${cls}">
+                <td>${q} (${rangeMap[q]})</td>
+                <td>${empty ? '—' : fmt(x.sales)}</td>
+                <td>${empty ? '—' : fmt(x.purchase)}</td>
+                <td class="${vatCls}">${empty ? '—' : (x.vat >= 0 ? '+' : '') + fmt(x.vat)}</td>
+            </tr>
+        `;
+    });
+    const t = yObj.total;
+    const tCls = t.vat > 0 ? 'pos' : (t.vat < 0 ? 'neg' : 'zero');
+    rows.push(`
+        <tr class="year-total">
+            <td>${year} 연계</td>
+            <td>${fmt(t.sales)}</td>
+            <td>${fmt(t.purchase)}</td>
+            <td class="${tCls}">${(t.vat >= 0 ? '+' : '') + fmt(t.vat)}</td>
+        </tr>
+    `);
+    body.innerHTML = rows.join('');
 }
 
 // 휴먼 근무자 통계 (h-card-ledger) — f2 일자별(지급용)·KM 휴먼에서 추출
@@ -1134,11 +1303,15 @@ function applyPermissions(grade, name) {
             }
         }
 
-        // 5. 현재 잔액 (2026)
+        // 5. 분기별 부가세 (휴먼) / 현재 잔액 (채움)
         const bal2026El = document.getElementById(`${prefix}-val-bal-2026`);
         if (bal2026El) {
             bal2026El.classList.add('unmasked');
-            bal2026El.textContent = prefix === 'h' ? '312,550,000원' : '150,880,000원';
+            if (prefix === 'h') {
+                loadHumanVATFromF7();
+            } else {
+                bal2026El.textContent = '150,880,000원';
+            }
         }
 
         // 8. 사용내역

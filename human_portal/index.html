@@ -269,10 +269,25 @@
                             <button class="btn-sm" onclick="openSecureDetail('human_f2')">상세보기/수정</button>
                         </div>
 
-                        <!-- 5. 2026년 현재 잔액 -->
-                        <div class="glass-card dashboard-card" id="h-card-bal-2026">
-                            <h3>📅 2026년 현재 잔액</h3>
-                            <div class="stat-value masked-data" id="h-val-bal-2026" style="font-size: 1.4rem;">●●●,●●●원</div>
+                        <!-- 5. 분기별 부가세 (휴먼) — 매출세액 - 매입세액 -->
+                        <div class="glass-card dashboard-card" id="h-card-bal-2026" style="grid-column: span 2; border-top: 5px solid #16a085;">
+                            <h3>📅 분기별 부가세 (휴먼) <span id="h-vat-tick" style="font-family:'Courier New', monospace; font-size:0.7rem; color:#888; margin-left:8px;">--:--:--</span></h3>
+                            <div class="stat-value masked-data" id="h-val-bal-2026" style="font-size: 1.4rem; color: #16a085;">●●●,●●●원</div>
+                            <div id="h-vat-wrap" style="display:none;">
+                                <div class="vat-controls">
+                                    <label>연도: <select id="h-vat-year" onchange="renderVATTable()"></select></label>
+                                    <span class="vat-formula">부가세 = (매출 공급가액 − 매입 공급가액) × 10%</span>
+                                </div>
+                                <div class="vat-wrap">
+                                    <table class="vat-table">
+                                        <thead>
+                                            <tr><th>분기</th><th>매출 공급</th><th>매입 공급</th><th>부가세 (납부액)</th></tr>
+                                        </thead>
+                                        <tbody id="h-vat-body"></tbody>
+                                    </table>
+                                </div>
+                                <p class="vat-note">📌 휴먼 시트의 매출/매입 공급가액을 분기 그룹화 후 직접 계산. (음수=환급)</p>
+                            </div>
                         </div>
 
                         <!-- 8. 휴먼 매월 사용내역 -->
@@ -510,6 +525,29 @@
             .worker-detail-sites { font-size: 0.75rem; color: #4b5563; line-height: 1.7; }
             .worker-detail-sites b { color: #047857; }
             .worker-note { font-size: 0.65rem; color: #95a5a6; margin: 10px 4px 0; text-align: right; }
+
+            /* 분기별 부가세 (h-card-bal-2026) */
+            .vat-controls { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin: 8px 0 10px; }
+            .vat-controls label { font-size: 0.78rem; font-weight: 600; color: #2c3e50; display: flex; align-items: center; gap: 6px; }
+            .vat-controls select { padding: 4px 10px; font-size: 0.78rem; border: 1px solid #d1d5db; border-radius: 4px; background: white; }
+            .vat-controls select:focus { outline: none; border-color: #16a085; box-shadow: 0 0 0 2px rgba(22, 160, 133, 0.15); }
+            .vat-formula { font-size: 0.7rem; color: #6b7280; font-family: 'Roboto Mono', monospace; padding: 3px 8px; background: #f0fdfa; border-radius: 3px; border: 1px solid #d1fae5; }
+            .vat-wrap { border: 1px solid #d1fae5; border-radius: 6px; overflow: hidden; background: #fbfefd; }
+            .vat-table { width: 100%; border-collapse: collapse; font-size: 0.76rem; }
+            .vat-table th { background: #16a085; color: white; padding: 7px 8px; text-align: center; font-weight: 600; }
+            .vat-table td { padding: 6px 8px; border-bottom: 1px solid #ecfdf5; }
+            .vat-table tr:last-child td { border-bottom: none; }
+            .vat-table tr:nth-child(even) td { background: #f0fdfa; }
+            .vat-table td:nth-child(1) { font-weight: 700; color: #064e3b; text-align: center; width: 18%; }
+            .vat-table td:nth-child(2),
+            .vat-table td:nth-child(3),
+            .vat-table td:nth-child(4) { text-align: right; font-family: 'Roboto Mono', monospace; }
+            .vat-table td:nth-child(4).pos { color: #c0392b; font-weight: 700; }
+            .vat-table td:nth-child(4).neg { color: #2980b9; font-weight: 700; }
+            .vat-table td:nth-child(4).zero { color: #bbb; }
+            .vat-table tr.empty-q td { color: #cbd5e1; font-style: italic; }
+            .vat-table tr.year-total td { background: #fef3c7 !important; font-weight: 700; color: #92400e; border-top: 2px solid #f59e0b; }
+            .vat-note { font-size: 0.65rem; color: #95a5a6; margin: 8px 4px 0; }
 
             /* 7개 일용직 양식 타일 */
             .form-tile-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; }
