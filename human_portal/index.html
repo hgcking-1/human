@@ -154,9 +154,17 @@
 
                         <!-- 2. 매출액 -->
                         <div class="glass-card dashboard-card" id="h-card-sales" style="border-top: 5px solid var(--accent-color);">
-                            <h3>📈 매출액 (2026)</h3>
+                            <h3>📈 매출액 (2026) <span style="font-size:0.7rem; color:#888; font-weight:400;">단위: 백만원</span></h3>
                             <div class="stat-value masked-data" id="h-val-sales" style="color: var(--accent-color); font-size: 1.8rem;">●●●,●●●원</div>
-                            <button class="btn-sm" onclick="openSecureDetail('human_sales')">상세보기</button>
+                            <div id="h-sales-monthly-wrap" class="sales-monthly-wrap" style="display:none;">
+                                <table class="sales-monthly-table">
+                                    <thead>
+                                        <tr><th>월</th><th>매출액 (백만원)</th></tr>
+                                    </thead>
+                                    <tbody id="h-sales-monthly-body"></tbody>
+                                </table>
+                            </div>
+                            <button class="btn-sm" onclick="openSecureDetail('human_f7')">상세보기/수정</button>
                         </div>
 
                         <!-- 3. 매입계산서 -->
@@ -325,6 +333,17 @@
             .unpaid-items-table tr:nth-child(even) td { background: #fafafa; }
             .unpaid-items-table tr:hover td { background: #fff3e0; }
             .unpaid-items-table td:nth-child(3) { text-align: right; font-family: 'Roboto Mono', monospace; color: #c0392b; font-weight: 600; }
+
+            /* 매출액(2026) 월별 테이블 */
+            .sales-monthly-wrap { margin-top: 8px; margin-bottom: 10px; border: 1px solid #ecf0f1; border-radius: 4px; max-height: 280px; overflow-y: auto; }
+            .sales-monthly-table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+            .sales-monthly-table th { position: sticky; top: 0; background: var(--accent-color); color: white; padding: 6px 10px; text-align: center; font-weight: 600; }
+            .sales-monthly-table td { padding: 5px 10px; border-bottom: 1px solid #f0f0f0; }
+            .sales-monthly-table td:nth-child(1) { text-align: center; font-weight: 600; color: #2c3e50; width: 36%; }
+            .sales-monthly-table td:nth-child(2) { text-align: right; font-family: 'Roboto Mono', monospace; color: var(--accent-color); font-weight: 600; }
+            .sales-monthly-table tr:nth-child(even) td { background: #fafafa; }
+            .sales-monthly-table tr.month-zero td { color: #bbb; }
+            .sales-monthly-table tr.total-row td { background: #fff8e1 !important; font-weight: 700; color: #d35400; border-top: 2px solid #d35400; }
 
             /* 7개 일용직 양식 타일 */
             .form-tile-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; }

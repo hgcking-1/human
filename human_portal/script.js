@@ -48,6 +48,10 @@ function startDigitalClock() {
     // 미입금 카드 데이터 로드 (페이지 진입 시 + 60초마다 갱신)
     loadHumanUnpaidFromF7();
     setInterval(loadHumanUnpaidFromF7, 60000);
+
+    // 매출액(2026) 카드 — f7 '휴먼' 시트에서 월별 자동 반영
+    loadHumanSalesFromF7();
+    setInterval(loadHumanSalesFromF7, 60000);
 }
 
 // 미입금(휴먼) 데이터를 f7 시트에서 추출하여 카드에 표시
@@ -132,6 +136,92 @@ async function loadHumanUnpaidFromF7() {
         ).join('') || '<tr><td colspan="3" style="text-align:center;color:#999;padding:14px;">데이터 없음</td></tr>';
     }
     if (breakdown && session) breakdown.style.display = 'block';
+}
+
+// 휴먼 매출액(2026) — f7 '휴먼' 시트에서 작성일자/매출합계로 월별 합산
+async function loadHumanSalesFromF7() {
+    const card = document.getElementById('h-card-sales');
+    if (!card) return;
+
+    let sheets = null;
+    try {
+        const saved = JSON.parse(localStorage.getItem('data_human_f7'));
+        if (saved && saved.sheets) sheets = saved.sheets;
+    } catch (e) {}
+
+    if (!sheets || !sheets['휴먼']) {
+        try {
+            const fileName = '2026.04-금전출납(세무용)_휴먼.xlsx';
+            const res = await fetch(encodeURIComponent(fileName));
+            if (res.ok) {
+                const buf = await res.arrayBuffer();
+                const wb = XLSX.read(new Uint8Array(buf), { type: 'array', dense: true });
+                sheets = sheets || {};
+                wb.SheetNames.forEach(s => {
+                    const ws = wb.Sheets[s];
+                    sheets[s] = XLSX.utils.sheet_to_json(ws, { header: 1 });
+                });
+            }
+        } catch (e) {}
+    }
+
+    if (!sheets || !sheets['휴먼']) return;
+
+    const sheet = sheets['휴먼'];
+    const unwrap = v => (v && typeof v === 'object' && v.isFormula) ? v.value : v;
+    const toNum = v => {
+        v = unwrap(v);
+        if (v === null || v === undefined || v === '') return 0;
+        if (typeof v === 'number') return v;
+        return parseFloat(v.toString().replace(/[^0-9.\-]/g, '')) || 0;
+    };
+    const toDate = v => {
+        v = unwrap(v);
+        if (typeof v === 'string' && v.trim() && !isNaN(v)) v = parseFloat(v);
+        if (typeof v !== 'number' || v < 40000 || v > 80000) return null;
+        return new Date((v - 25569) * 86400 * 1000);
+    };
+
+    // 헤더 행 = row index 2 (1-based 3). 데이터는 index 3부터.
+    const monthly = new Array(12).fill(0);
+    let total = 0;
+    for (let i = 3; i < sheet.length; i++) {
+        const row = sheet[i] || [];
+        const d = toDate(row[0]);
+        if (!d || d.getFullYear() !== 2026) continue;
+        const sales = toNum(row[2]); // 매출합계
+        monthly[d.getMonth()] += sales;
+        total += sales;
+    }
+
+    const fmtMM = v => {
+        const mm = v / 1000000;
+        return mm.toLocaleString('ko-KR', { maximumFractionDigits: 1 });
+    };
+
+    // 로그인 상태에서만 실제 값 노출 (다른 카드들과 동일한 마스킹 정책)
+    const session = JSON.parse(localStorage.getItem('userSession') || 'null');
+    if (!session) return;
+
+    const valEl = document.getElementById('h-val-sales');
+    if (valEl) {
+        valEl.classList.add('unmasked');
+        valEl.textContent = fmtMM(total) + ' 백만원';
+    }
+
+    const wrap = document.getElementById('h-sales-monthly-wrap');
+    const tbody = document.getElementById('h-sales-monthly-body');
+    if (tbody) {
+        const rows = [
+            `<tr class="total-row"><td>합계</td><td>${fmtMM(total)}</td></tr>`,
+            ...monthly.map((v, i) => {
+                const cls = v === 0 ? 'month-zero' : '';
+                return `<tr class="${cls}"><td>${i + 1}월</td><td>${fmtMM(v)}</td></tr>`;
+            })
+        ];
+        tbody.innerHTML = rows.join('');
+    }
+    if (wrap) wrap.style.display = 'block';
 }
 
 function escapeHtml(s) {
@@ -413,19 +503,23 @@ function applyPermissions(grade, name) {
             }
         }
 
-        // 2. 매출액
+        // 2. 매출액 — 휴먼은 f7(금전출납)에서 자동 반영(loadHumanSalesFromF7), 채움은 기존 로직 유지
         const salesEl = document.getElementById(`${prefix}-val-sales`);
         if (salesEl) {
             salesEl.classList.add('unmasked');
-            const saved = JSON.parse(localStorage.getItem(`data_${companyKey}_sales`));
-            if (saved && saved.data && saved.data.length > 0) {
-                const total = saved.data.reduce((acc, row) => {
-                    let amountStr = (row[2] || '0').toString();
-                    return acc + (parseInt(amountStr.replace(/[^0-9]/g, '')) || 0);
-                }, 0);
-                salesEl.textContent = total.toLocaleString() + '원';
+            if (prefix === 'h') {
+                loadHumanSalesFromF7();
             } else {
-                salesEl.textContent = prefix === 'h' ? '1,250,000,000원' : '780,000,000원';
+                const saved = JSON.parse(localStorage.getItem(`data_${companyKey}_sales`));
+                if (saved && saved.data && saved.data.length > 0) {
+                    const total = saved.data.reduce((acc, row) => {
+                        let amountStr = (row[2] || '0').toString();
+                        return acc + (parseInt(amountStr.replace(/[^0-9]/g, '')) || 0);
+                    }, 0);
+                    salesEl.textContent = total.toLocaleString() + '원';
+                } else {
+                    salesEl.textContent = '780,000,000원';
+                }
             }
         }
 
