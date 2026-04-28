@@ -788,12 +788,13 @@ function closeBankModal() {
     document.body.style.overflow = '';
 }
 
-// ESC 키로 닫기
+// ESC 키로 모달 닫기
 document.addEventListener('keydown', e => {
-    if (e.key === 'Escape') {
-        const modal = document.getElementById('bank-detail-modal');
-        if (modal && modal.style.display === 'block') closeBankModal();
-    }
+    if (e.key !== 'Escape') return;
+    const wm = document.getElementById('worker-card-modal');
+    if (wm && wm.style.display === 'block') { closeWorkerModal(); return; }
+    const bm = document.getElementById('bank-detail-modal');
+    if (bm && bm.style.display === 'block') closeBankModal();
 });
 
 // 휴먼 분기별 부가세 — f7 '휴먼' 시트의 매출/매입 공급가액을 연·분기로 그룹화하여 직접 계산
@@ -1112,14 +1113,42 @@ async function loadHumanWorkerFromF2() {
         const primarySite = sites[0] ? sites[0].site : '';
         const latestDay = uniqueDays.length ? uniqueDays[uniqueDays.length - 1] : 0;
 
+        // 입사일/퇴사일 자동 계산 — 데이터의 첫·마지막 근무일
+        const firstDay = uniqueDays.length ? uniqueDays[0] : 0;
+        const lastDay = uniqueDays.length ? uniqueDays[uniqueDays.length - 1] : 0;
+        const spanDays = firstDay && lastDay ? (lastDay - firstDay + 1) : 0;
+        const attendance = spanDays > 0 ? (totalDays / spanDays) : 0;
+        const firstDayInfo = w.days.find(d => d.day === firstDay) || w.days[0] || {};
+        const lastDayInfo = w.days.slice().reverse().find(d => d.day === lastDay) || w.days[0] || {};
+        const yyyy = firstDayInfo.year || (new Date()).getFullYear();
+        const mm = firstDayInfo.month || (new Date()).getMonth() + 1;
+
         return {
             key: w.key, name: w.name, phone: w.phone, jumin: w.jumin,
             days: w.days, uniqueDays, totalDays, totalPay, totalCharge,
             maxConsecutive: { len: maxLen, start: maxStart, end: maxEnd },
-            sites, primarySite, latestDay
+            sites, primarySite, latestDay,
+            firstDay, lastDay, spanDays, attendance,
+            firstDate: { year: firstDayInfo.year || yyyy, month: firstDayInfo.month || mm, day: firstDay },
+            lastDate: { year: lastDayInfo.year || yyyy, month: lastDayInfo.month || mm, day: lastDay }
         };
     });
     workers.sort((a, b) => b.totalDays - a.totalDays || b.totalPay - a.totalPay);
+
+    // 데이터셋 전체의 최신 근무일 → 재직 상태 추정 기준
+    const datasetMaxDay = workers.reduce((max, w) => Math.max(max, w.lastDay), 0);
+    const datasetMinDay = workers.reduce((min, w) => w.firstDay > 0 ? Math.min(min, w.firstDay) : min, datasetMaxDay || 31);
+    const datasetMonthLen = (() => {
+        const w = workers.find(x => x.firstDate && x.firstDate.year);
+        if (!w) return 31;
+        return new Date(w.firstDate.year, w.firstDate.month, 0).getDate();
+    })();
+    workers.forEach(w => {
+        const gap = datasetMaxDay - w.lastDay;
+        // 마지막 근무일이 데이터 최신일과 7일 이내면 재직중, 아니면 추정 퇴사
+        w.isActive = gap <= 7;
+        w.exitGap = gap;
+    });
 
     // 4) 현장별 그룹화
     const byVendor = {}; // siteName → workers (with site-specific stats)
@@ -1136,7 +1165,7 @@ async function loadHumanWorkerFromF2() {
     const byKey = {};
     workers.forEach(w => { byKey[w.key] = w; });
 
-    _humanWorkerData = { dailyTotals, workers, byVendor, byKey };
+    _humanWorkerData = { dailyTotals, workers, byVendor, byKey, datasetMaxDay, datasetMinDay, datasetMonthLen };
 
     // 시계
     const tickEl = document.getElementById('h-worker-tick');
@@ -1259,6 +1288,9 @@ function selectWorker(key) {
     const w = _humanWorkerData.byKey[key];
     if (!w) return;
 
+    // 직원카드 모달 표시
+    openWorkerModal(key);
+
     // 개인 탭으로 자동 전환
     switchWorkerTab('person');
     renderWorkerPersonList();
@@ -1289,6 +1321,202 @@ function selectWorker(key) {
         <div class="worker-detail-section-title">📅 근무 일자 (최대 연속 ${w.maxConsecutive.len}일은 노란색)</div>
         <div class="worker-detail-days">${dayPills}</div>
     `;
+}
+
+// 직원카드 모달
+function openWorkerModal(key) {
+    if (!_humanWorkerData) return;
+    const w = _humanWorkerData.byKey[key];
+    if (!w) return;
+    const modal = document.getElementById('worker-card-modal');
+    const body = document.getElementById('worker-modal-body');
+    if (!modal || !body) return;
+
+    const { datasetMaxDay, datasetMonthLen } = _humanWorkerData;
+    const fmtDate = (info) => {
+        if (!info || !info.day) return '—';
+        return `${info.year}-${String(info.month).padStart(2, '0')}-${String(info.day).padStart(2, '0')}`;
+    };
+    const fmtMD = (info) => {
+        if (!info || !info.day) return '—';
+        return `${String(info.month).padStart(2, '0')}/${String(info.day).padStart(2, '0')}`;
+    };
+
+    // 마스킹된 주민번호 (앞 6자리만 노출)
+    const juminMasked = w.jumin
+        ? w.jumin.replace(/^(\d{6})[-]?(\d?).*/, '$1-$2******').replace(/-$/, '-*******')
+        : '—';
+
+    const initial = (w.name || '?').slice(0, 1);
+    const empNo = (w.jumin && w.jumin.length >= 6) ? w.jumin.slice(0, 6) : (w.phone ? w.phone.replace(/-/g, '').slice(-4) : 'N/A');
+
+    // 입사일 / 마지막 근무일 / 활동기간 / 퇴사 추정
+    const exitText = w.isActive ? '재직중' : `추정 ${fmtMD(w.lastDate)}`;
+    const exitSub = w.isActive
+        ? `최근 근무: ${w.lastDay}일 (${w.exitGap}일 전)`
+        : `${w.exitGap}일간 미출근`;
+
+    // 1. ID 카드 헤더
+    const idCardHtml = `
+        <div class="wc-card">
+            <div class="wc-id-band">
+                <span class="wc-id-co">HUMANMS · 일용근로자 카드</span>
+                <span class="wc-id-no">EMP-${empNo}</span>
+            </div>
+            <div class="wc-id-main">
+                <div class="wc-avatar"><span class="wc-avatar-text">${escapeHtml(initial)}</span></div>
+                <div class="wc-info">
+                    <div class="wc-name">
+                        ${escapeHtml(w.name)}
+                        <span class="wc-status-badge ${w.isActive ? 'active' : 'inactive'}">${w.isActive ? '● 재직중' : '◐ 추정 퇴사'}</span>
+                    </div>
+                    <div class="wc-meta">
+                        <div class="wc-meta-item"><span class="wc-meta-label">📞 연락처</span><span class="wc-meta-val">${escapeHtml(w.phone || '—')}</span></div>
+                        <div class="wc-meta-item"><span class="wc-meta-label">🆔 주민번호</span><span class="wc-meta-val">${escapeHtml(juminMasked)}</span></div>
+                        <div class="wc-meta-item"><span class="wc-meta-label">📍 주현장</span><span class="wc-meta-val">${escapeHtml(w.primarySite || '—')}</span></div>
+                        <div class="wc-meta-item"><span class="wc-meta-label">🏢 현장수</span><span class="wc-meta-val">${w.sites.length}개소</span></div>
+                    </div>
+                </div>
+            </div>
+            <div class="wc-dates">
+                <div class="wc-date-card entry">
+                    <div class="wcd-label">📥 입사일 (자동)</div>
+                    <div class="wcd-val">${fmtDate(w.firstDate)}</div>
+                    <div class="wcd-sub">데이터 첫 근무일</div>
+                </div>
+                <div class="wc-date-card exit ${w.isActive ? 'active' : ''}">
+                    <div class="wcd-label">📤 퇴사일 (추정)</div>
+                    <div class="wcd-val">${exitText}</div>
+                    <div class="wcd-sub">${exitSub}</div>
+                </div>
+                <div class="wc-date-card">
+                    <div class="wcd-label">📆 근무일수</div>
+                    <div class="wcd-val">${w.totalDays}일</div>
+                    <div class="wcd-sub">고유 근무일 수</div>
+                </div>
+                <div class="wc-date-card">
+                    <div class="wcd-label">📊 활동 기간</div>
+                    <div class="wcd-val">${w.spanDays}일</div>
+                    <div class="wcd-sub">출근율 ${(w.attendance * 100).toFixed(0)}%</div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    // 2. 통계 카드 4개
+    const avgPay = w.totalDays > 0 ? Math.round(w.totalPay / w.totalDays) : 0;
+    const statsHtml = `
+        <div class="wc-section">
+            <h4>💼 근무 통계 <span class="wcs-meta">${w.firstDate.year}년 ${w.firstDate.month}월 기준</span></h4>
+            <div class="wc-stats">
+                <div class="wc-stat-card"><div class="wcs-label">총 지급액</div><div class="wcs-val">${w.totalPay.toLocaleString()}원</div><div class="wcs-sub">${w.totalDays}일 합산</div></div>
+                <div class="wc-stat-card"><div class="wcs-label">평균 일급</div><div class="wcs-val">${avgPay.toLocaleString()}원</div><div class="wcs-sub">총지급 ÷ 근무일</div></div>
+                <div class="wc-stat-card"><div class="wcs-label">최대 연속</div><div class="wcs-val">${w.maxConsecutive.len}일</div><div class="wcs-sub">${w.maxConsecutive.len > 1 ? `${w.maxConsecutive.start}~${w.maxConsecutive.end}일` : '—'}</div></div>
+                <div class="wc-stat-card"><div class="wcs-label">총 청구액</div><div class="wcs-val" style="color:#1f618d;">${w.totalCharge.toLocaleString()}원</div><div class="wcs-sub">현장 청구 합산</div></div>
+            </div>
+        </div>
+    `;
+
+    // 3. 근무 캘린더 (월 전체, 7열 그리드)
+    const monthLen = datasetMonthLen || 31;
+    const workedSet = new Set(w.uniqueDays);
+    const streakSet = new Set();
+    if (w.maxConsecutive.len > 1) {
+        for (let d = w.maxConsecutive.start; d <= w.maxConsecutive.end; d++) streakSet.add(d);
+    }
+    // 요일 정렬을 위해 1일이 무슨 요일인지 확인
+    const firstWd = new Date(w.firstDate.year, w.firstDate.month - 1, 1).getDay();
+    const calCells = [];
+    for (let i = 0; i < firstWd; i++) calCells.push(`<div class="wc-cal-cell outside"></div>`);
+    for (let d = 1; d <= monthLen; d++) {
+        const isWorked = workedSet.has(d);
+        const isStreak = streakSet.has(d);
+        const isEntry = d === w.firstDay;
+        const isExit = !w.isActive && d === w.lastDay;
+        const cls = ['wc-cal-cell'];
+        if (isStreak) cls.push('streak');
+        else if (isWorked) cls.push('worked');
+        if (isEntry) cls.push('entry-day');
+        if (isExit) cls.push('exit-day');
+        // 그날 지급액
+        const dayPay = w.days.filter(x => x.day === d).reduce((s, x) => s + x.pay, 0);
+        const payText = dayPay > 0 ? (dayPay >= 10000 ? Math.round(dayPay / 10000) + '만' : '') : '';
+        const tip = isWorked
+            ? `${d}일 · 지급 ${dayPay.toLocaleString()}원${isEntry ? ' · 📥입사' : ''}${isExit ? ' · 📤퇴사' : ''}`
+            : `${d}일 · 미근무`;
+        calCells.push(`<div class="${cls.join(' ')}" title="${tip}">${d}<span class="wcc-pay">${payText}</span></div>`);
+    }
+    const calHtml = `
+        <div class="wc-section">
+            <h4>📅 근무 캘린더 <span class="wcs-meta">${w.firstDate.year}-${String(w.firstDate.month).padStart(2, '0')} · 데이터 ${datasetMaxDay}일까지</span></h4>
+            <div class="wc-cal">
+                <div class="wc-cal-cell outside" style="background:#fff5f5;color:#e74c3c;border:none;">일</div>
+                <div class="wc-cal-cell outside" style="background:transparent;color:#7f8c8d;border:none;">월</div>
+                <div class="wc-cal-cell outside" style="background:transparent;color:#7f8c8d;border:none;">화</div>
+                <div class="wc-cal-cell outside" style="background:transparent;color:#7f8c8d;border:none;">수</div>
+                <div class="wc-cal-cell outside" style="background:transparent;color:#7f8c8d;border:none;">목</div>
+                <div class="wc-cal-cell outside" style="background:transparent;color:#7f8c8d;border:none;">금</div>
+                <div class="wc-cal-cell outside" style="background:#f0f8ff;color:#2980b9;border:none;">토</div>
+                ${calCells.join('')}
+            </div>
+            <div class="wc-cal-legend">
+                <span><i class="lg-box" style="background:#d1fae5;border:1px solid #6ee7b7;"></i>근무</span>
+                <span><i class="lg-box" style="background:#fde68a;border:1px solid #f59e0b;"></i>최대 연속 (${w.maxConsecutive.len}일)</span>
+                <span><i class="lg-box" style="background:white;border:2px solid #047857;"></i>입사일</span>
+                <span><i class="lg-box" style="background:white;border:2px solid #c0392b;"></i>퇴사일(추정)</span>
+            </div>
+        </div>
+    `;
+
+    // 4. 근무 현장
+    const sitesHtml = `
+        <div class="wc-section">
+            <h4>📍 근무 현장 <span class="wcs-meta">총 ${w.sites.length}개소</span></h4>
+            <div class="wc-sites">
+                ${w.sites.map(s => `
+                    <div class="wc-site-item">
+                        <span class="wcsi-name">${escapeHtml(s.site)}</span>
+                        <span class="wcsi-days">${s.days}일</span>
+                        <span class="wcsi-pay">${s.pay.toLocaleString()}원</span>
+                    </div>
+                `).join('') || '<div style="color:#9ca3af;font-size:0.78rem;">근무 현장 없음</div>'}
+            </div>
+        </div>
+    `;
+
+    // 5. 일자별 근무 내역 (최신순)
+    const sortedDayEntries = [...w.days].sort((a, b) => b.day - a.day);
+    const ledgerRows = sortedDayEntries.map(d => `
+        <tr>
+            <td class="date">${String(d.month).padStart(2, '0')}/${String(d.day).padStart(2, '0')}</td>
+            <td class="site">${escapeHtml(d.site || '—')}</td>
+            <td class="time">${escapeHtml(d.workTime || '—')}</td>
+            <td class="pay">${d.pay.toLocaleString()}</td>
+            <td class="charge">${d.charge.toLocaleString()}</td>
+            <td class="status"><span class="${d.paid ? 'badge-paid' : 'badge-unpaid'}">${d.paid ? '지급완료' : '미지급'}</span></td>
+        </tr>
+    `).join('');
+    const ledgerHtml = `
+        <div class="wc-section">
+            <h4>📋 일자별 근무 내역 <span class="wcs-meta">총 ${w.days.length}건</span></h4>
+            <div class="wc-ledger-wrap">
+                <table class="wc-ledger-table">
+                    <thead><tr><th>날짜</th><th>현장</th><th>시간</th><th>지급</th><th>청구</th><th>상태</th></tr></thead>
+                    <tbody>${ledgerRows || '<tr><td colspan="6" style="text-align:center;color:#9ca3af;padding:14px;">근무 내역 없음</td></tr>'}</tbody>
+                </table>
+            </div>
+        </div>
+    `;
+
+    body.innerHTML = idCardHtml + statsHtml + calHtml + sitesHtml + ledgerHtml;
+    modal.style.display = 'block';
+    document.body.style.overflow = 'hidden';
+}
+
+function closeWorkerModal() {
+    const modal = document.getElementById('worker-card-modal');
+    if (modal) modal.style.display = 'none';
+    document.body.style.overflow = '';
 }
 
 function switchWorkerTab(tab) {

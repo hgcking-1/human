@@ -703,6 +703,96 @@
             .bm-ledger-table tr.day-divider td .day-net.pos { color: #16a085; }
             .bm-ledger-table tr.day-divider td .day-net.neg { color: #c0392b; }
             .bm-ledger-empty { text-align: center; padding: 30px; color: #95a5a6; font-size: 0.85rem; }
+
+            /* 직원카드 모달 */
+            .worker-modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); animation: bm-fade 0.15s ease; }
+            .worker-modal-content { background: #f4f6f9; margin: 3% auto; padding: 0; border-radius: 14px; width: 92%; max-width: 880px; max-height: 92vh; overflow: hidden; box-shadow: 0 12px 50px rgba(0,0,0,0.35); display: flex; flex-direction: column; animation: bm-slide 0.22s ease; }
+            .worker-modal-header { display: flex; justify-content: space-between; align-items: center; padding: 12px 22px; background: linear-gradient(135deg, #047857, #065f46); color: white; flex-shrink: 0; }
+            .worker-modal-header h2 { margin: 0; font-size: 1.05rem; font-weight: 700; }
+            .worker-modal-close { font-size: 28px; font-weight: bold; cursor: pointer; line-height: 1; padding: 0 6px; transition: opacity 0.15s; user-select: none; }
+            .worker-modal-close:hover { opacity: 0.7; }
+            .worker-modal-body { padding: 18px; overflow-y: auto; flex: 1; }
+
+            /* ID 카드 헤더 */
+            .wc-card { background: white; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); overflow: hidden; margin-bottom: 14px; }
+            .wc-id-band { background: linear-gradient(135deg, #047857 0%, #065f46 100%); color: white; padding: 8px 18px; font-size: 0.7rem; font-weight: 700; letter-spacing: 1.5px; display: flex; justify-content: space-between; align-items: center; }
+            .wc-id-band .wc-id-co { opacity: 0.85; }
+            .wc-id-band .wc-id-no { font-family: 'Roboto Mono', monospace; opacity: 0.85; }
+            .wc-id-main { display: flex; gap: 18px; padding: 18px; }
+            .wc-avatar { width: 84px; height: 100px; border-radius: 8px; background: linear-gradient(160deg, #d1fae5, #6ee7b7); display: flex; align-items: center; justify-content: center; flex-shrink: 0; border: 2px solid #047857; box-shadow: inset 0 0 0 3px white, 0 2px 6px rgba(4,120,87,0.2); }
+            .wc-avatar-text { font-size: 2rem; font-weight: 700; color: #065f46; }
+            .wc-info { flex: 1; min-width: 0; }
+            .wc-name { font-size: 1.5rem; font-weight: 700; color: #1f2937; line-height: 1.1; margin-bottom: 4px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+            .wc-status-badge { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.5px; }
+            .wc-status-badge.active { background: #d1fae5; color: #065f46; border: 1px solid #047857; }
+            .wc-status-badge.inactive { background: #fef3c7; color: #92400e; border: 1px solid #d97706; }
+            .wc-meta { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px 12px; font-size: 0.78rem; color: #4b5563; margin-top: 6px; }
+            @media (max-width: 600px) { .wc-meta { grid-template-columns: 1fr; } }
+            .wc-meta-item { display: flex; align-items: center; gap: 6px; }
+            .wc-meta-item .wc-meta-label { color: #9ca3af; font-weight: 600; min-width: 56px; }
+            .wc-meta-item .wc-meta-val { color: #1f2937; font-family: 'Roboto Mono', monospace; }
+
+            /* 핵심 일자 4카드 */
+            .wc-dates { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; padding: 0 18px 18px; }
+            @media (max-width: 600px) { .wc-dates { grid-template-columns: repeat(2, 1fr); } }
+            .wc-date-card { padding: 10px; border-radius: 8px; background: #f9fafb; border: 1px solid #e5e7eb; text-align: center; }
+            .wc-date-card.entry { background: linear-gradient(135deg, #ecfdf5, #d1fae5); border-color: #6ee7b7; }
+            .wc-date-card.exit { background: linear-gradient(135deg, #fef3c7, #fde68a); border-color: #f59e0b; }
+            .wc-date-card.exit.active { background: linear-gradient(135deg, #ecfdf5, #a7f3d0); border-color: #047857; }
+            .wc-date-card .wcd-label { font-size: 0.7rem; color: #6b7280; font-weight: 600; }
+            .wc-date-card .wcd-val { font-size: 1.05rem; font-weight: 700; color: #1f2937; font-family: 'Roboto Mono', monospace; margin-top: 4px; }
+            .wc-date-card .wcd-sub { font-size: 0.65rem; color: #95a5a6; margin-top: 2px; }
+            .wc-date-card.entry .wcd-val { color: #065f46; }
+            .wc-date-card.exit .wcd-val { color: #92400e; }
+            .wc-date-card.exit.active .wcd-val { color: #065f46; }
+
+            /* 통계 영역 */
+            .wc-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+            @media (max-width: 600px) { .wc-stats { grid-template-columns: repeat(2, 1fr); } }
+            .wc-stat-card { padding: 10px; border-radius: 8px; background: white; border: 1px solid #e5e7eb; text-align: center; }
+            .wc-stat-card .wcs-label { font-size: 0.7rem; color: #6b7280; font-weight: 600; }
+            .wc-stat-card .wcs-val { font-size: 1.1rem; font-weight: 700; color: #047857; font-family: 'Roboto Mono', monospace; margin-top: 4px; }
+            .wc-stat-card .wcs-sub { font-size: 0.62rem; color: #95a5a6; margin-top: 2px; }
+
+            .wc-section { background: white; border-radius: 10px; padding: 12px 14px; margin-bottom: 12px; box-shadow: 0 1px 4px rgba(0,0,0,0.04); }
+            .wc-section h4 { margin: 0 0 8px; font-size: 0.85rem; color: #047857; padding-bottom: 6px; border-bottom: 2px solid #d1fae5; display: flex; justify-content: space-between; align-items: center; }
+            .wc-section h4 .wcs-meta { font-size: 0.7rem; color: #6b7280; font-weight: 400; font-family: 'Roboto Mono', monospace; }
+
+            /* 캘린더 */
+            .wc-cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
+            .wc-cal-cell { aspect-ratio: 1; border-radius: 4px; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 0.7rem; font-weight: 700; background: #f3f4f6; color: #d1d5db; border: 1px solid transparent; transition: transform 0.1s; }
+            .wc-cal-cell.outside { background: transparent; color: #e5e7eb; }
+            .wc-cal-cell.worked { background: #d1fae5; color: #065f46; border-color: #6ee7b7; }
+            .wc-cal-cell.worked:hover { transform: scale(1.1); border-color: #047857; }
+            .wc-cal-cell.streak { background: #fde68a; color: #92400e; border-color: #f59e0b; }
+            .wc-cal-cell.entry-day { box-shadow: inset 0 0 0 2px #047857; }
+            .wc-cal-cell.exit-day { box-shadow: inset 0 0 0 2px #c0392b; }
+            .wc-cal-cell .wcc-pay { font-size: 0.55rem; opacity: 0.85; font-weight: 600; }
+            .wc-cal-legend { display: flex; gap: 12px; margin-top: 8px; font-size: 0.7rem; color: #6b7280; flex-wrap: wrap; }
+            .wc-cal-legend span { display: inline-flex; align-items: center; gap: 4px; }
+            .wc-cal-legend .lg-box { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+
+            /* 현장 리스트 */
+            .wc-sites { display: grid; gap: 6px; }
+            .wc-site-item { display: flex; align-items: center; gap: 10px; padding: 6px 10px; background: #f9fafb; border-radius: 6px; border-left: 3px solid #047857; font-size: 0.8rem; }
+            .wc-site-item .wcsi-name { flex: 1; color: #1f2937; font-weight: 600; }
+            .wc-site-item .wcsi-days { color: #047857; font-family: 'Roboto Mono', monospace; font-weight: 700; min-width: 36px; text-align: right; }
+            .wc-site-item .wcsi-pay { color: #1f618d; font-family: 'Roboto Mono', monospace; font-weight: 700; min-width: 100px; text-align: right; }
+
+            /* 일자별 근무 내역 */
+            .wc-ledger-wrap { max-height: 280px; overflow-y: auto; border: 1px solid #e5e7eb; border-radius: 6px; }
+            .wc-ledger-table { width: 100%; border-collapse: collapse; font-size: 0.76rem; }
+            .wc-ledger-table th { position: sticky; top: 0; background: #047857; color: white; padding: 7px 8px; font-weight: 600; text-align: center; z-index: 1; white-space: nowrap; }
+            .wc-ledger-table td { padding: 5px 8px; border-bottom: 1px solid #f3f4f6; }
+            .wc-ledger-table tr:nth-child(even) td { background: #f9fafb; }
+            .wc-ledger-table td.date { font-family: 'Roboto Mono', monospace; color: #555; text-align: center; font-weight: 600; white-space: nowrap; }
+            .wc-ledger-table td.site { color: #1f2937; }
+            .wc-ledger-table td.time { color: #6b7280; text-align: center; font-family: 'Roboto Mono', monospace; }
+            .wc-ledger-table td.pay { font-family: 'Roboto Mono', monospace; text-align: right; color: #047857; font-weight: 600; }
+            .wc-ledger-table td.charge { font-family: 'Roboto Mono', monospace; text-align: right; color: #2980b9; }
+            .wc-ledger-table td.status { text-align: center; }
+            .wc-ledger-table td.status .badge-paid { background: #d1fae5; color: #065f46; padding: 2px 7px; border-radius: 10px; font-size: 0.66rem; font-weight: 700; }
+            .wc-ledger-table td.status .badge-unpaid { background: #fef3c7; color: #92400e; padding: 2px 7px; border-radius: 10px; font-size: 0.66rem; font-weight: 700; }
         </style>
 
         <footer>
@@ -718,6 +808,17 @@
                 <span class="bank-modal-close" onclick="closeBankModal()" title="닫기 (ESC)">&times;</span>
             </div>
             <div id="bank-modal-body" class="bank-modal-body"></div>
+        </div>
+    </div>
+
+    <!-- 직원카드 모달 -->
+    <div id="worker-card-modal" class="worker-modal" onclick="if(event.target===this) closeWorkerModal()">
+        <div class="worker-modal-content">
+            <div class="worker-modal-header">
+                <h2>📇 직원 카드</h2>
+                <span class="worker-modal-close" onclick="closeWorkerModal()" title="닫기 (ESC)">&times;</span>
+            </div>
+            <div id="worker-modal-body" class="worker-modal-body"></div>
         </div>
     </div>
 
