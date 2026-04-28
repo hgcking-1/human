@@ -208,11 +208,65 @@
                             <button class="btn-sm" onclick="openSecureDetail('human_f7')">계좌관리</button>
                         </div>
 
-                        <!-- 4. 현재 잔액 장부 -->
-                        <div class="glass-card dashboard-card" id="h-card-ledger">
-                            <h3>📒 현재 잔액 장부</h3>
+                        <!-- 4. 근무자 통계 (일자별·KM 휴먼) — 일별 지급/업체별·개인별 탐색기 -->
+                        <div class="glass-card dashboard-card" id="h-card-ledger" style="grid-column: 1 / -1; border-top: 5px solid var(--success-color);">
+                            <h3>📒 근무자 통계 (일자별·KM 휴먼) <span id="h-worker-tick" style="font-family:'Courier New', monospace; font-size:0.7rem; color:#888; margin-left:8px;">--:--:--</span></h3>
                             <div class="stat-value masked-data" id="h-val-ledger" style="color: var(--success-color); font-size: 1.5rem;">●●●,●●●원</div>
-                            <button class="btn-sm" onclick="openSecureDetail('human_ledger')">상세보기</button>
+                            <div id="h-worker-wrap" style="display:none;">
+                                <div class="worker-section-title">📅 일별 지급 합계</div>
+                                <div id="h-daily-strip" class="daily-strip"></div>
+
+                                <div class="worker-tabs">
+                                    <button class="worker-tab active" data-tab="vendor" onclick="switchWorkerTab('vendor')">🏢 업체별 탐색</button>
+                                    <button class="worker-tab" data-tab="person" onclick="switchWorkerTab('person')">👤 개인별 탐색</button>
+                                </div>
+
+                                <!-- 업체별 탐색기 -->
+                                <div id="h-worker-vendor" class="worker-pane active">
+                                    <div class="worker-filter-row">
+                                        <label>현장: <select id="h-worker-vendor-select" onchange="renderWorkerVendorTable()"></select></label>
+                                        <span id="h-worker-vendor-summary" class="worker-summary"></span>
+                                    </div>
+                                    <div class="worker-table-wrap">
+                                        <table class="worker-table">
+                                            <thead>
+                                                <tr>
+                                                    <th>이름</th>
+                                                    <th>연락처</th>
+                                                    <th>주민번호</th>
+                                                    <th>근무일수</th>
+                                                    <th>최대 연속</th>
+                                                    <th>총 지급액</th>
+                                                    <th>최근 근무</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="h-worker-vendor-body"></tbody>
+                                        </table>
+                                    </div>
+                                </div>
+
+                                <!-- 개인별 탐색기 -->
+                                <div id="h-worker-person" class="worker-pane" style="display:none;">
+                                    <div class="worker-filter-row">
+                                        <label>이름 검색: <input type="text" id="h-worker-search" placeholder="이름 입력 (예: 김성준)" oninput="renderWorkerPersonList()"></label>
+                                        <span id="h-worker-person-summary" class="worker-summary"></span>
+                                    </div>
+                                    <div class="worker-person-grid">
+                                        <div class="worker-person-list-wrap">
+                                            <table class="worker-table">
+                                                <thead><tr><th>이름</th><th>주현장</th><th>근무일수</th><th>총 지급액</th></tr></thead>
+                                                <tbody id="h-worker-person-list"></tbody>
+                                            </table>
+                                        </div>
+                                        <div class="worker-detail" id="h-worker-detail">
+                                            <p class="worker-detail-empty">왼쪽 목록에서 이름을 클릭하면 상세 정보가 표시됩니다.</p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <p class="worker-note">📌 데이터 소스: 일자별(지급용)·KM 휴먼 — 자동 갱신 (60초)</p>
+                            </div>
+                            <button class="btn-sm" onclick="openSecureDetail('human_f2')">상세보기/수정</button>
                         </div>
 
                         <!-- 5. 2026년 현재 잔액 -->
@@ -403,6 +457,59 @@
             .bank-table td:nth-child(2).zero-bal { color: #bbb; font-weight: 400; }
             .bank-table td:nth-child(2).neg-bal { color: #c0392b; }
             .bank-note { font-size: 0.65rem; color: #95a5a6; margin: 6px 4px 0; text-align: right; }
+
+            /* 근무자 통계 카드 (h-card-ledger) */
+            .worker-section-title { font-size: 0.85rem; font-weight: 700; color: #2c3e50; margin: 12px 0 8px; padding-left: 4px; border-left: 3px solid var(--success-color); }
+            .daily-strip { display: flex; gap: 6px; overflow-x: auto; padding: 8px 4px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 6px; margin-bottom: 12px; }
+            .daily-cell { flex: 0 0 auto; min-width: 78px; padding: 6px 8px; background: white; border: 1px solid #d1fae5; border-radius: 5px; text-align: center; font-size: 0.7rem; transition: all 0.15s; }
+            .daily-cell:hover { background: #ecfdf5; border-color: #34d399; transform: translateY(-1px); }
+            .daily-cell .dc-day { font-weight: 700; color: #065f46; font-size: 0.75rem; }
+            .daily-cell .dc-pay { font-family: 'Roboto Mono', monospace; color: #047857; font-weight: 600; margin-top: 2px; }
+            .daily-cell .dc-cnt { color: #95a5a6; font-size: 0.62rem; margin-top: 2px; }
+            .daily-cell.empty { opacity: 0.4; }
+
+            .worker-tabs { display: flex; gap: 6px; margin-bottom: 10px; border-bottom: 2px solid #e5e7eb; }
+            .worker-tab { padding: 8px 16px; font-size: 0.85rem; font-weight: 600; border: none; background: transparent; cursor: pointer; color: #6b7280; border-bottom: 3px solid transparent; margin-bottom: -2px; transition: all 0.15s; }
+            .worker-tab:hover { color: #047857; }
+            .worker-tab.active { color: #047857; border-bottom-color: #047857; }
+
+            .worker-filter-row { display: flex; align-items: center; gap: 16px; padding: 8px 4px; flex-wrap: wrap; }
+            .worker-filter-row label { font-size: 0.8rem; color: #374151; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+            .worker-filter-row select, .worker-filter-row input[type=text] { padding: 5px 10px; font-size: 0.8rem; border: 1px solid #d1d5db; border-radius: 4px; background: white; min-width: 180px; }
+            .worker-filter-row input[type=text]:focus, .worker-filter-row select:focus { outline: none; border-color: #047857; box-shadow: 0 0 0 2px rgba(4, 120, 87, 0.15); }
+            .worker-summary { font-size: 0.75rem; color: #6b7280; }
+            .worker-summary b { color: #047857; }
+
+            .worker-table-wrap { max-height: 360px; overflow-y: auto; border: 1px solid #e5e7eb; border-radius: 6px; background: white; }
+            .worker-table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+            .worker-table th { position: sticky; top: 0; background: #047857; color: white; padding: 8px 10px; text-align: center; font-weight: 600; z-index: 1; }
+            .worker-table td { padding: 6px 10px; border-bottom: 1px solid #f3f4f6; }
+            .worker-table tr:nth-child(even) td { background: #f9fafb; }
+            .worker-table tr:hover td { background: #d1fae5; cursor: pointer; }
+            .worker-table tr.selected td { background: #a7f3d0 !important; }
+            .worker-table td:nth-child(1) { font-weight: 700; color: #2c3e50; }
+            .worker-table td.num { text-align: right; font-family: 'Roboto Mono', monospace; }
+            .worker-table td.center { text-align: center; }
+
+            .worker-person-grid { display: grid; grid-template-columns: 1fr 1.2fr; gap: 12px; }
+            @media (max-width: 900px) { .worker-person-grid { grid-template-columns: 1fr; } }
+            .worker-person-list-wrap { max-height: 360px; overflow-y: auto; border: 1px solid #e5e7eb; border-radius: 6px; background: white; }
+            .worker-detail { border: 1px solid #e5e7eb; border-radius: 6px; padding: 14px; background: #f9fafb; max-height: 360px; overflow-y: auto; }
+            .worker-detail-empty { color: #9ca3af; font-size: 0.85rem; text-align: center; padding: 30px 0; }
+            .worker-detail h4 { font-size: 1rem; margin: 0 0 10px; color: #047857; padding-bottom: 6px; border-bottom: 2px solid #d1fae5; }
+            .worker-detail h4 small { font-size: 0.7rem; color: #6b7280; font-weight: 400; margin-left: 8px; }
+            .worker-detail-stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 10px; }
+            .worker-detail-stat { background: white; padding: 8px 10px; border-radius: 4px; border: 1px solid #e5e7eb; }
+            .worker-detail-stat .label { font-size: 0.7rem; color: #6b7280; }
+            .worker-detail-stat .value { font-size: 0.95rem; font-weight: 700; color: #2c3e50; font-family: 'Roboto Mono', monospace; margin-top: 2px; }
+            .worker-detail-stat.highlight .value { color: #d97706; }
+            .worker-detail-section-title { font-size: 0.75rem; font-weight: 700; color: #374151; margin: 10px 0 4px; }
+            .worker-detail-days { font-family: 'Roboto Mono', monospace; font-size: 0.72rem; color: #4b5563; line-height: 1.6; word-break: break-all; }
+            .worker-detail-day-pill { display: inline-block; padding: 2px 6px; background: #d1fae5; border-radius: 3px; margin: 1px 2px; color: #065f46; font-weight: 600; }
+            .worker-detail-day-pill.streak { background: #fde68a; color: #92400e; }
+            .worker-detail-sites { font-size: 0.75rem; color: #4b5563; line-height: 1.7; }
+            .worker-detail-sites b { color: #047857; }
+            .worker-note { font-size: 0.65rem; color: #95a5a6; margin: 10px 4px 0; text-align: right; }
 
             /* 7개 일용직 양식 타일 */
             .form-tile-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; }

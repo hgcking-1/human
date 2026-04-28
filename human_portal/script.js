@@ -60,6 +60,10 @@ function startDigitalClock() {
     // 은행 계좌 현황 카드 — f7 '시재' 시트에서 자동 반영
     loadHumanBankFromF7();
     setInterval(loadHumanBankFromF7, 60000);
+
+    // 근무자 통계 카드 — f2 일자별(지급용) 시트에서 자동 반영
+    loadHumanWorkerFromF2();
+    setInterval(loadHumanWorkerFromF2, 60000);
 }
 
 // 미입금(휴먼) 데이터를 f7 시트에서 추출하여 카드에 표시
@@ -441,6 +445,344 @@ async function loadHumanBankFromF7() {
     if (wrap) wrap.style.display = 'block';
 }
 
+// 휴먼 근무자 통계 (h-card-ledger) — f2 일자별(지급용)·KM 휴먼에서 추출
+let _humanWorkerData = null; // { dailyTotals, workers[], byVendor, byKey }
+let _humanWorkerSelectedKey = null;
+
+async function loadHumanWorkerFromF2() {
+    const card = document.getElementById('h-card-ledger');
+    if (!card) return;
+
+    let sheets = null;
+    try {
+        const saved = JSON.parse(localStorage.getItem('data_human_f2'));
+        if (saved && saved.sheets) sheets = saved.sheets;
+    } catch (e) {}
+
+    if (!sheets) {
+        try {
+            const fileName = '2026.04 일자별(지급용)_KM 휴먼.xlsx';
+            const res = await fetch(encodeURIComponent(fileName));
+            if (res.ok) {
+                const buf = await res.arrayBuffer();
+                const wb = XLSX.read(new Uint8Array(buf), { type: 'array', dense: true });
+                sheets = {};
+                wb.SheetNames.forEach(s => {
+                    const ws = wb.Sheets[s];
+                    sheets[s] = XLSX.utils.sheet_to_json(ws, { header: 1 });
+                });
+            }
+        } catch (e) {}
+    }
+    if (!sheets) return;
+
+    const unwrap = v => (v && typeof v === 'object' && v.isFormula) ? v.value : v;
+    const toNum = v => {
+        v = unwrap(v);
+        if (v === null || v === undefined || v === '') return 0;
+        if (typeof v === 'number') return v;
+        return parseFloat(v.toString().replace(/[^0-9.\-]/g, '')) || 0;
+    };
+    const toStr = v => {
+        v = unwrap(v);
+        return (v === null || v === undefined) ? '' : v.toString().trim();
+    };
+    const serialToDay = serial => {
+        if (typeof serial !== 'number' || serial < 40000 || serial > 80000) return null;
+        const d = new Date((serial - 25569) * 86400 * 1000);
+        return { date: d, day: d.getDate(), month: d.getMonth() + 1, year: d.getFullYear() };
+    };
+
+    // 1) 일별 합계 (요약 시트)
+    const summaryName = Object.keys(sheets).find(n => /\d+월휴먼\s*$/.test(n));
+    const dailyTotals = [];
+    if (summaryName && sheets[summaryName]) {
+        const ss = sheets[summaryName];
+        for (let i = 3; i < ss.length; i++) {
+            const r = ss[i] || [];
+            const dayLabel = toStr(r[0]); // "1일", "2일" ...
+            const m = dayLabel.match(/^(\d+)일/);
+            if (!m) continue;
+            const day = parseInt(m[1]);
+            const count = toNum(r[1]);
+            const pay = toNum(r[2]);
+            const charge = toNum(r[3]);
+            if (count === 0 && pay === 0) continue;
+            dailyTotals.push({ day, count, pay, charge });
+        }
+    }
+
+    // 2) 일별 시트 (1, 2, ...) → 근무자 데이터 누적
+    const workerMap = {}; // key → worker
+    Object.keys(sheets).forEach(sheetName => {
+        if (!/^\d+$/.test(sheetName)) return;
+        const sheet = sheets[sheetName];
+        if (!sheet || sheet.length < 4) return;
+
+        // row 0의 col 0이 시리얼 날짜
+        const serial = toNum(sheet[0] && sheet[0][0]);
+        const dInfo = serialToDay(serial);
+        if (!dInfo) return;
+        const dateStr = `${dInfo.month}/${dInfo.day}`;
+
+        // 데이터 row 4부터
+        for (let i = 4; i < sheet.length; i++) {
+            const r = sheet[i] || [];
+            const name = toStr(r[5]);
+            if (!name) continue;
+            const phone = toStr(r[6]);
+            const jumin = toStr(r[7]);
+            const site = toStr(r[2]);
+            const workTime = toStr(r[4]);
+            const pay = toNum(r[10]);
+            const charge = toNum(r[11]);
+            const paid = toStr(r[12]) === '지급완료';
+
+            const key = jumin || `${name}|${phone}`;
+            if (!workerMap[key]) {
+                workerMap[key] = { key, name, phone, jumin, days: [] };
+            }
+            // 같은 사람이 같은 날 여러 행이면 모두 누적
+            workerMap[key].days.push({
+                day: dInfo.day, month: dInfo.month, year: dInfo.year,
+                dateStr, site, workTime, pay, charge, paid
+            });
+        }
+    });
+
+    // 3) 근무자별 집계
+    const workers = Object.values(workerMap).map(w => {
+        // 같은 사람이 같은 날 여러 현장 근무한 경우 day 단위 집계
+        const dayPayMap = {}; // day → totalPay
+        const daySiteSet = {}; // day → Set<site>
+        w.days.forEach(d => {
+            dayPayMap[d.day] = (dayPayMap[d.day] || 0) + d.pay;
+            if (!daySiteSet[d.day]) daySiteSet[d.day] = new Set();
+            daySiteSet[d.day].add(d.site);
+        });
+        const uniqueDays = Object.keys(dayPayMap).map(Number).sort((a, b) => a - b);
+        const totalDays = uniqueDays.length;
+        const totalPay = w.days.reduce((s, d) => s + d.pay, 0);
+        const totalCharge = w.days.reduce((s, d) => s + d.charge, 0);
+
+        // 최대 연속 근무 계산
+        let maxLen = 0, maxStart = 0, maxEnd = 0;
+        if (uniqueDays.length > 0) {
+            let curStart = uniqueDays[0], curEnd = uniqueDays[0], curLen = 1;
+            maxLen = 1; maxStart = curStart; maxEnd = curEnd;
+            for (let i = 1; i < uniqueDays.length; i++) {
+                if (uniqueDays[i] === curEnd + 1) {
+                    curEnd = uniqueDays[i]; curLen++;
+                } else {
+                    curStart = uniqueDays[i]; curEnd = uniqueDays[i]; curLen = 1;
+                }
+                if (curLen > maxLen) { maxLen = curLen; maxStart = curStart; maxEnd = curEnd; }
+            }
+        }
+
+        // 현장별 집계
+        const siteCount = {}; // site → days count
+        const sitePay = {};
+        Object.keys(daySiteSet).forEach(day => {
+            daySiteSet[day].forEach(site => {
+                siteCount[site] = (siteCount[site] || 0) + 1;
+            });
+        });
+        w.days.forEach(d => {
+            sitePay[d.site] = (sitePay[d.site] || 0) + d.pay;
+        });
+        const sites = Object.keys(siteCount).map(s => ({ site: s, days: siteCount[s], pay: sitePay[s] || 0 }))
+            .sort((a, b) => b.days - a.days);
+        const primarySite = sites[0] ? sites[0].site : '';
+        const latestDay = uniqueDays.length ? uniqueDays[uniqueDays.length - 1] : 0;
+
+        return {
+            key: w.key, name: w.name, phone: w.phone, jumin: w.jumin,
+            days: w.days, uniqueDays, totalDays, totalPay, totalCharge,
+            maxConsecutive: { len: maxLen, start: maxStart, end: maxEnd },
+            sites, primarySite, latestDay
+        };
+    });
+    workers.sort((a, b) => b.totalDays - a.totalDays || b.totalPay - a.totalPay);
+
+    // 4) 현장별 그룹화
+    const byVendor = {}; // siteName → workers (with site-specific stats)
+    workers.forEach(w => {
+        w.sites.forEach(s => {
+            if (!byVendor[s.site]) byVendor[s.site] = [];
+            byVendor[s.site].push({ ...w, _vendorDays: s.days, _vendorPay: s.pay });
+        });
+    });
+    Object.keys(byVendor).forEach(v => {
+        byVendor[v].sort((a, b) => b._vendorDays - a._vendorDays || b._vendorPay - a._vendorPay);
+    });
+
+    const byKey = {};
+    workers.forEach(w => { byKey[w.key] = w; });
+
+    _humanWorkerData = { dailyTotals, workers, byVendor, byKey };
+
+    // 시계
+    const tickEl = document.getElementById('h-worker-tick');
+    if (tickEl) {
+        const n = new Date();
+        tickEl.textContent = `${String(n.getHours()).padStart(2, '0')}:${String(n.getMinutes()).padStart(2, '0')}:${String(n.getSeconds()).padStart(2, '0')}`;
+    }
+
+    // 카드 상단 합계 — 4월 총 지급액
+    const totalPay = dailyTotals.reduce((s, d) => s + d.pay, 0);
+    const session = JSON.parse(localStorage.getItem('userSession') || 'null');
+    const valEl = document.getElementById('h-val-ledger');
+    if (valEl && session) {
+        valEl.classList.add('unmasked');
+        valEl.textContent = `${totalPay.toLocaleString()}원 (월 누계 지급)`;
+    }
+    if (!session) return;
+
+    renderDailyStrip();
+    populateVendorSelect();
+    renderWorkerVendorTable();
+    renderWorkerPersonList();
+
+    const wrap = document.getElementById('h-worker-wrap');
+    if (wrap) wrap.style.display = 'block';
+}
+
+function renderDailyStrip() {
+    const el = document.getElementById('h-daily-strip');
+    if (!el || !_humanWorkerData) return;
+    const days = _humanWorkerData.dailyTotals;
+    const fmtMan = v => {
+        // 만원 단위로 압축 (예: 2178750 → 218만)
+        if (v >= 10000) return Math.round(v / 10000).toLocaleString() + '만';
+        return v.toLocaleString();
+    };
+    el.innerHTML = days.map(d => `
+        <div class="daily-cell" title="${d.day}일 · ${d.count}명 · 지급 ${d.pay.toLocaleString()}원 · 청구 ${d.charge.toLocaleString()}원">
+            <div class="dc-day">${d.day}일</div>
+            <div class="dc-pay">${fmtMan(d.pay)}</div>
+            <div class="dc-cnt">👥 ${d.count}명</div>
+        </div>
+    `).join('') || '<div style="padding:8px;color:#999;font-size:0.78rem;">일별 데이터 없음</div>';
+}
+
+function populateVendorSelect() {
+    const sel = document.getElementById('h-worker-vendor-select');
+    if (!sel || !_humanWorkerData) return;
+    const vendors = Object.keys(_humanWorkerData.byVendor).sort();
+    const totalCount = _humanWorkerData.workers.length;
+    sel.innerHTML = `<option value="__ALL__">전체 (${totalCount}명)</option>` +
+        vendors.map(v => `<option value="${escapeHtml(v)}">${escapeHtml(v)} (${_humanWorkerData.byVendor[v].length}명)</option>`).join('');
+}
+
+function renderWorkerVendorTable() {
+    const body = document.getElementById('h-worker-vendor-body');
+    const sumEl = document.getElementById('h-worker-vendor-summary');
+    const sel = document.getElementById('h-worker-vendor-select');
+    if (!body || !_humanWorkerData) return;
+    const vendor = sel ? sel.value : '__ALL__';
+
+    let list, vendorDaysFn, vendorPayFn;
+    if (vendor === '__ALL__') {
+        list = _humanWorkerData.workers;
+        vendorDaysFn = w => w.totalDays;
+        vendorPayFn = w => w.totalPay;
+    } else {
+        list = _humanWorkerData.byVendor[vendor] || [];
+        vendorDaysFn = w => w._vendorDays;
+        vendorPayFn = w => w._vendorPay;
+    }
+
+    const totalPay = list.reduce((s, w) => s + vendorPayFn(w), 0);
+    if (sumEl) sumEl.innerHTML = `총 <b>${list.length}</b>명 · 지급 <b>${totalPay.toLocaleString()}원</b>`;
+
+    body.innerHTML = list.map(w => `
+        <tr data-key="${escapeHtml(w.key)}" onclick="selectWorker('${escapeHtml(w.key)}')">
+            <td>${escapeHtml(w.name)}</td>
+            <td class="center">${escapeHtml(w.phone)}</td>
+            <td class="center" style="font-size:0.7rem;color:#6b7280;">${escapeHtml(w.jumin)}</td>
+            <td class="num">${vendorDaysFn(w)}일</td>
+            <td class="num">${w.maxConsecutive.len}일${w.maxConsecutive.len > 1 ? ` (${w.maxConsecutive.start}~${w.maxConsecutive.end})` : ''}</td>
+            <td class="num">${vendorPayFn(w).toLocaleString()}</td>
+            <td class="center">${w.latestDay}일</td>
+        </tr>
+    `).join('') || '<tr><td colspan="7" style="text-align:center;color:#999;padding:20px;">데이터 없음</td></tr>';
+}
+
+function renderWorkerPersonList() {
+    const list = document.getElementById('h-worker-person-list');
+    const sumEl = document.getElementById('h-worker-person-summary');
+    const search = document.getElementById('h-worker-search');
+    if (!list || !_humanWorkerData) return;
+    const q = (search ? search.value : '').trim().toLowerCase();
+
+    let filtered = _humanWorkerData.workers;
+    if (q) {
+        filtered = filtered.filter(w =>
+            w.name.toLowerCase().includes(q) ||
+            (w.phone || '').toLowerCase().includes(q) ||
+            (w.jumin || '').includes(q)
+        );
+    }
+
+    if (sumEl) sumEl.innerHTML = `검색 결과 <b>${filtered.length}</b>명 / 전체 <b>${_humanWorkerData.workers.length}</b>명`;
+
+    list.innerHTML = filtered.slice(0, 200).map(w => `
+        <tr data-key="${escapeHtml(w.key)}" class="${_humanWorkerSelectedKey === w.key ? 'selected' : ''}" onclick="selectWorker('${escapeHtml(w.key)}')">
+            <td>${escapeHtml(w.name)}</td>
+            <td class="center" style="font-size:0.7rem;color:#6b7280;">${escapeHtml(w.primarySite)}</td>
+            <td class="num">${w.totalDays}일</td>
+            <td class="num">${w.totalPay.toLocaleString()}</td>
+        </tr>
+    `).join('') || '<tr><td colspan="4" style="text-align:center;color:#999;padding:20px;">검색 결과 없음</td></tr>';
+}
+
+function selectWorker(key) {
+    if (!_humanWorkerData) return;
+    _humanWorkerSelectedKey = key;
+    const w = _humanWorkerData.byKey[key];
+    if (!w) return;
+
+    // 개인 탭으로 자동 전환
+    switchWorkerTab('person');
+    renderWorkerPersonList();
+
+    const detail = document.getElementById('h-worker-detail');
+    if (!detail) return;
+
+    const sortedDays = [...w.uniqueDays].sort((a, b) => a - b);
+    const inStreak = new Set();
+    for (let d = w.maxConsecutive.start; d <= w.maxConsecutive.end; d++) inStreak.add(d);
+    const dayPills = sortedDays.map(d =>
+        `<span class="worker-detail-day-pill ${inStreak.has(d) ? 'streak' : ''}">${d}일</span>`
+    ).join(' ');
+    const sitesHtml = w.sites.map(s =>
+        `<div>• <b>${escapeHtml(s.site)}</b>: ${s.days}일 · ${s.pay.toLocaleString()}원</div>`
+    ).join('');
+
+    detail.innerHTML = `
+        <h4>${escapeHtml(w.name)}<small>${escapeHtml(w.phone)} · ${escapeHtml(w.jumin)}</small></h4>
+        <div class="worker-detail-stats">
+            <div class="worker-detail-stat"><div class="label">총 근무일수</div><div class="value">${w.totalDays}일</div></div>
+            <div class="worker-detail-stat highlight"><div class="label">최대 연속 근무</div><div class="value">${w.maxConsecutive.len}일${w.maxConsecutive.len > 1 ? ` (${w.maxConsecutive.start}~${w.maxConsecutive.end})` : ''}</div></div>
+            <div class="worker-detail-stat"><div class="label">총 지급액</div><div class="value">${w.totalPay.toLocaleString()}원</div></div>
+            <div class="worker-detail-stat"><div class="label">평균 일급</div><div class="value">${w.totalDays > 0 ? Math.round(w.totalPay / w.totalDays).toLocaleString() : 0}원</div></div>
+        </div>
+        <div class="worker-detail-section-title">📍 근무 현장 (현장별 일수·지급액)</div>
+        <div class="worker-detail-sites">${sitesHtml}</div>
+        <div class="worker-detail-section-title">📅 근무 일자 (최대 연속 ${w.maxConsecutive.len}일은 노란색)</div>
+        <div class="worker-detail-days">${dayPills}</div>
+    `;
+}
+
+function switchWorkerTab(tab) {
+    document.querySelectorAll('.worker-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
+    const v = document.getElementById('h-worker-vendor');
+    const p = document.getElementById('h-worker-person');
+    if (v) v.style.display = tab === 'vendor' ? 'block' : 'none';
+    if (p) p.style.display = tab === 'person' ? 'block' : 'none';
+}
+
 function escapeHtml(s) {
     return (s || '').toString()
         .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -757,17 +1099,21 @@ function applyPermissions(grade, name) {
             }
         }
 
-        // 4. 현재 잔액 장부
+        // 4. 현재 잔액 장부 — 휴먼은 근무자 통계로 대체(loadHumanWorkerFromF2), 채움은 기존 로직 유지
         const ledgerEl = document.getElementById(`${prefix}-val-ledger`);
         if (ledgerEl) {
             ledgerEl.classList.add('unmasked');
-            const saved = JSON.parse(localStorage.getItem(`data_${companyKey}_ledger`));
-            if (saved && saved.data && saved.data.length > 0) {
-                const latestRow = saved.data[0];
-                const balance = parseInt((latestRow[4] || 0).toString().replace(/[^0-9-]/g, '')) || 0;
-                ledgerEl.textContent = balance.toLocaleString() + '원';
+            if (prefix === 'h') {
+                loadHumanWorkerFromF2();
             } else {
-                ledgerEl.textContent = prefix === 'h' ? '892,440,000원' : '450,220,000원';
+                const saved = JSON.parse(localStorage.getItem(`data_${companyKey}_ledger`));
+                if (saved && saved.data && saved.data.length > 0) {
+                    const latestRow = saved.data[0];
+                    const balance = parseInt((latestRow[4] || 0).toString().replace(/[^0-9-]/g, '')) || 0;
+                    ledgerEl.textContent = balance.toLocaleString() + '원';
+                } else {
+                    ledgerEl.textContent = '450,220,000원';
+                }
             }
         }
 
