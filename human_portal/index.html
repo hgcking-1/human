@@ -201,12 +201,15 @@
                                 <div class="billing-wrap">
                                     <table class="billing-table">
                                         <thead>
-                                            <tr><th>업체</th><th>당월</th><th>누적</th><th>미입금</th><th>결재</th></tr>
+                                            <tr><th>업체</th><th>당월</th><th>누적</th><th>미입금</th><th>지급패턴</th></tr>
                                         </thead>
                                         <tbody id="h-billing-body"></tbody>
                                     </table>
                                 </div>
                                 <p class="billing-note">📌 미입금 = 청구되었으나 아직 입금되지 않은 금액(전월이월). 별도 재청구 X — 입금 확인 후 정산.</p>
+                                <div style="margin-top: 8px; text-align: center;">
+                                    <button class="btn-sm" id="h-billing-pattern-btn" onclick="openVendorPatternModal()" style="display:none; border-color:#9b59b6; color:#9b59b6;">📊 지급패턴 분류 보기 (당일/10일/혼합)</button>
+                                </div>
                             </div>
                             <button class="btn-sm" onclick="openSecureDetail('human_f1')">상세보기/수정</button>
                         </div>
@@ -793,6 +796,108 @@
             .wc-ledger-table td.status { text-align: center; }
             .wc-ledger-table td.status .badge-paid { background: #d1fae5; color: #065f46; padding: 2px 7px; border-radius: 10px; font-size: 0.66rem; font-weight: 700; }
             .wc-ledger-table td.status .badge-unpaid { background: #fef3c7; color: #92400e; padding: 2px 7px; border-radius: 10px; font-size: 0.66rem; font-weight: 700; }
+
+            /* 업체 청구표 — 클릭 + 패턴 배지 */
+            .billing-table tr.vendor-row { cursor: pointer; }
+            .billing-table tr.vendor-row:hover td { background: #f4ecf7; }
+            .billing-table td:nth-child(5) { text-align: center; }
+            .pattern-badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 0.66rem; font-weight: 700; letter-spacing: 0.3px; white-space: nowrap; }
+            .pattern-badge.pat-same { background: #d1fae5; color: #065f46; border: 1px solid #6ee7b7; }
+            .pattern-badge.pat-ten { background: #dbeafe; color: #1e40af; border: 1px solid #93c5fd; }
+            .pattern-badge.pat-mix { background: #fde68a; color: #92400e; border: 1px solid #f59e0b; }
+            .pattern-badge.pat-long { background: #fecaca; color: #991b1b; border: 1px solid #f87171; }
+            .pattern-badge.pat-etc { background: #e5e7eb; color: #374151; border: 1px solid #9ca3af; }
+            .pattern-badge.pat-na { background: #f3f4f6; color: #9ca3af; border: 1px dashed #d1d5db; }
+
+            /* 업체 모달 (공통) */
+            .vendor-modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.55); animation: bm-fade 0.15s ease; }
+            .vendor-modal-content { background: white; margin: 4% auto; padding: 0; border-radius: 12px; width: 92%; max-width: 920px; max-height: 88vh; overflow: hidden; box-shadow: 0 10px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column; animation: bm-slide 0.2s ease; }
+            .vendor-modal-content.vendor-modal-wide { max-width: 1100px; }
+            .vendor-modal-header { display: flex; justify-content: space-between; align-items: center; padding: 14px 22px; background: linear-gradient(135deg, #9b59b6, #6c3483); color: white; flex-shrink: 0; }
+            .vendor-modal-header h2 { margin: 0; font-size: 1.1rem; font-weight: 700; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+            .vendor-modal-header .pattern-badge { font-size: 0.72rem; }
+            .vendor-modal-close { font-size: 28px; font-weight: bold; cursor: pointer; line-height: 1; padding: 0 6px; transition: opacity 0.15s; user-select: none; }
+            .vendor-modal-close:hover { opacity: 0.7; }
+            .vendor-modal-body { padding: 16px 22px 20px; overflow-y: auto; flex: 1; }
+
+            /* 업체 상세 — 요약 카드 */
+            .vm-summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 16px; }
+            @media (max-width: 700px) { .vm-summary { grid-template-columns: repeat(2, 1fr); } }
+            .vm-sum-card { padding: 10px 12px; border-radius: 8px; background: #faf5ff; border: 1px solid #e9d5ff; }
+            .vm-sum-card .vms-label { font-size: 0.7rem; color: #7c3aed; font-weight: 600; }
+            .vm-sum-card .vms-val { font-size: 1rem; font-weight: 700; font-family: 'Roboto Mono', monospace; color: #6c3483; margin-top: 4px; }
+            .vm-sum-card.alert { background: #fef2f2; border-color: #fecaca; }
+            .vm-sum-card.alert .vms-label { color: #c0392b; }
+            .vm-sum-card.alert .vms-val { color: #991b1b; }
+            .vm-sum-card.ok { background: #ecfdf5; border-color: #a7f3d0; }
+            .vm-sum-card.ok .vms-label { color: #047857; }
+            .vm-sum-card.ok .vms-val { color: #065f46; }
+
+            .vm-section { margin-top: 16px; }
+            .vm-section h4 { margin: 0 0 10px; font-size: 0.92rem; color: #6c3483; padding-bottom: 6px; border-bottom: 2px solid #d2b4de; display: flex; justify-content: space-between; align-items: center; }
+            .vm-section h4 .vms-meta { font-size: 0.7rem; color: #7f8c8d; font-weight: 400; font-family: 'Roboto Mono', monospace; }
+
+            /* 갭 히스토그램 */
+            .vm-hist { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
+            @media (max-width: 700px) { .vm-hist { grid-template-columns: repeat(3, 1fr); } }
+            .vm-hist-bar { padding: 10px 6px; border-radius: 6px; text-align: center; border: 1px solid #ecf0f1; background: #fbfcfe; position: relative; }
+            .vm-hist-bar.same { background: #ecfdf5; border-color: #a7f3d0; }
+            .vm-hist-bar.short { background: #fffbeb; border-color: #fde68a; }
+            .vm-hist-bar.ten { background: #dbeafe; border-color: #93c5fd; }
+            .vm-hist-bar.biweek { background: #fef3c7; border-color: #fbbf24; }
+            .vm-hist-bar.long { background: #fed7aa; border-color: #fb923c; }
+            .vm-hist-bar.very { background: #fecaca; border-color: #f87171; }
+            .vm-hist-bar .vmh-label { font-size: 0.7rem; font-weight: 600; color: #4b5563; }
+            .vm-hist-bar .vmh-range { font-size: 0.62rem; color: #6b7280; font-family: 'Roboto Mono', monospace; }
+            .vm-hist-bar .vmh-count { font-size: 1.2rem; font-weight: 700; color: #1f2937; font-family: 'Roboto Mono', monospace; margin-top: 4px; }
+            .vm-hist-bar .vmh-pct { font-size: 0.7rem; color: #6b7280; }
+
+            /* 청구 내역 테이블 */
+            .vm-ledger-wrap { max-height: 320px; overflow-y: auto; border: 1px solid #ecf0f1; border-radius: 6px; }
+            .vm-ledger-table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+            .vm-ledger-table th { position: sticky; top: 0; background: #6c3483; color: white; padding: 7px 8px; font-weight: 600; text-align: center; z-index: 1; white-space: nowrap; }
+            .vm-ledger-table td { padding: 5px 8px; border-bottom: 1px solid #f3f4f6; }
+            .vm-ledger-table tr:nth-child(even) td { background: #fafafa; }
+            .vm-ledger-table td.date { font-family: 'Roboto Mono', monospace; color: #555; text-align: center; font-weight: 600; white-space: nowrap; }
+            .vm-ledger-table td.amt { font-family: 'Roboto Mono', monospace; text-align: right; font-weight: 600; }
+            .vm-ledger-table td.gap { font-family: 'Roboto Mono', monospace; text-align: center; font-weight: 700; }
+            .vm-ledger-table td.gap.same-day { color: #047857; }
+            .vm-ledger-table td.gap.ten-day { color: #1e40af; }
+            .vm-ledger-table td.gap.long-day { color: #c0392b; }
+            .vm-ledger-table td.gap.unpaid { color: #c0392b; font-weight: 700; background: #fff8f6; }
+            .vm-ledger-table td.memo { color: #6b7280; font-size: 0.74rem; }
+
+            /* 다음 예상 입금일 안내 */
+            .vm-forecast { background: linear-gradient(135deg, #ecfdf5, #d1fae5); border: 1px solid #6ee7b7; border-radius: 8px; padding: 10px 14px; margin-top: 10px; display: flex; align-items: center; gap: 12px; }
+            .vm-forecast .vmf-icon { font-size: 1.6rem; }
+            .vm-forecast .vmf-text { flex: 1; }
+            .vm-forecast .vmf-title { font-size: 0.78rem; font-weight: 700; color: #065f46; }
+            .vm-forecast .vmf-detail { font-size: 0.74rem; color: #047857; margin-top: 2px; }
+
+            /* 패턴 분류 모달 */
+            .vp-help { background: #faf5ff; border: 1px solid #e9d5ff; border-radius: 8px; padding: 10px 14px; margin-bottom: 14px; font-size: 0.78rem; color: #6b21a8; line-height: 1.5; }
+            .vp-help b { color: #581c87; }
+            .vp-tabs { display: flex; gap: 4px; margin-bottom: 12px; flex-wrap: wrap; border-bottom: 2px solid #ecf0f1; padding-bottom: 0; }
+            .vp-tab { padding: 7px 14px; font-size: 0.82rem; font-weight: 700; border: none; background: transparent; cursor: pointer; color: #6b7280; border-bottom: 3px solid transparent; margin-bottom: -2px; transition: all 0.12s; display: flex; align-items: center; gap: 6px; }
+            .vp-tab .vp-tab-count { background: #e5e7eb; color: #374151; padding: 1px 8px; border-radius: 10px; font-size: 0.7rem; font-weight: 700; }
+            .vp-tab:hover { color: #6c3483; }
+            .vp-tab.active { color: #6c3483; border-bottom-color: #6c3483; }
+            .vp-tab.active .vp-tab-count { background: #d2b4de; color: #581c87; }
+
+            .vp-pane { display: none; }
+            .vp-pane.active { display: block; }
+            .vp-pane-desc { background: #f9fafb; border-left: 3px solid #6c3483; padding: 8px 12px; font-size: 0.76rem; color: #4b5563; margin-bottom: 10px; border-radius: 0 6px 6px 0; }
+            .vp-vendor-list { display: grid; gap: 6px; max-height: 480px; overflow-y: auto; }
+            .vp-vendor-item { display: grid; grid-template-columns: 2.2fr 1fr 1fr 1fr 0.8fr; gap: 10px; align-items: center; padding: 8px 12px; background: white; border: 1px solid #ecf0f1; border-radius: 6px; cursor: pointer; transition: all 0.12s; font-size: 0.78rem; }
+            @media (max-width: 700px) { .vp-vendor-item { grid-template-columns: 2fr 1fr 1fr; } .vp-vendor-item .vpv-paid, .vp-vendor-item .vpv-arrow { display:none; } }
+            .vp-vendor-item:hover { background: #faf5ff; border-color: #c084fc; transform: translateX(2px); }
+            .vp-vendor-item .vpv-name { font-weight: 700; color: #1f2937; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+            .vp-vendor-item .vpv-stat { font-family: 'Roboto Mono', monospace; text-align: right; color: #6c3483; font-size: 0.74rem; }
+            .vp-vendor-item .vpv-stat .vpv-l { color: #9ca3af; font-size: 0.66rem; display: block; }
+            .vp-vendor-item .vpv-amt { font-family: 'Roboto Mono', monospace; text-align: right; color: #1f618d; font-weight: 700; }
+            .vp-vendor-item .vpv-paid { font-family: 'Roboto Mono', monospace; text-align: right; color: #047857; }
+            .vp-vendor-item .vpv-arrow { color: #9ca3af; text-align: right; }
+            .vp-empty { color: #9ca3af; font-size: 0.85rem; text-align: center; padding: 30px 0; font-style: italic; }
         </style>
 
         <footer>
@@ -819,6 +924,28 @@
                 <span class="worker-modal-close" onclick="closeWorkerModal()" title="닫기 (ESC)">&times;</span>
             </div>
             <div id="worker-modal-body" class="worker-modal-body"></div>
+        </div>
+    </div>
+
+    <!-- 업체 상세 모달 (청구→입금 갭 분석) -->
+    <div id="vendor-detail-modal" class="vendor-modal" onclick="if(event.target===this) closeVendorModal()">
+        <div class="vendor-modal-content">
+            <div class="vendor-modal-header">
+                <h2 id="vendor-modal-title">📑 업체 상세</h2>
+                <span class="vendor-modal-close" onclick="closeVendorModal()" title="닫기 (ESC)">&times;</span>
+            </div>
+            <div id="vendor-modal-body" class="vendor-modal-body"></div>
+        </div>
+    </div>
+
+    <!-- 지급패턴 분류 모달 -->
+    <div id="vendor-pattern-modal" class="vendor-modal" onclick="if(event.target===this) closeVendorPatternModal()">
+        <div class="vendor-modal-content vendor-modal-wide">
+            <div class="vendor-modal-header">
+                <h2>📊 업체 지급패턴 분류</h2>
+                <span class="vendor-modal-close" onclick="closeVendorPatternModal()" title="닫기 (ESC)">&times;</span>
+            </div>
+            <div id="vendor-pattern-body" class="vendor-modal-body"></div>
         </div>
     </div>
 

@@ -240,6 +240,111 @@ async function loadHumanSalesFromF7() {
     if (wrap) wrap.style.display = 'block';
 }
 
+// 업체별 지급 패턴 통계 (f7 휴먼 시트 기반) — 클릭 모달용
+let _humanVendorStats = null; // { all: [], byName: {}, byPattern: {} }
+
+function computeHumanVendorStats(humanSheet) {
+    const unwrap = v => (v && typeof v === 'object' && v.isFormula) ? v.value : v;
+    const toNum = v => {
+        v = unwrap(v);
+        if (v === null || v === undefined || v === '') return 0;
+        if (typeof v === 'number') return v;
+        return parseFloat(v.toString().replace(/[^0-9.\-]/g, '')) || 0;
+    };
+    const toStr = v => {
+        v = unwrap(v);
+        return (v === null || v === undefined) ? '' : v.toString().trim();
+    };
+
+    // 컬럼: 0=작성일자 1=상호 2=매출합계 3=매출공급가 4=매출세액 9=입금일 10=출금일 11=통장
+    const txnsByVendor = {};
+    for (let i = 3; i < humanSheet.length; i++) {
+        const r = humanSheet[i] || [];
+        const created = unwrap(r[0]);
+        const vendor = toStr(r[1]);
+        const sales = toNum(r[2]);
+        const ipgum = unwrap(r[9]);
+        const memo = toStr(r[8]);
+        if (!vendor || sales <= 0) continue;
+        if (typeof created !== 'number' || created < 30000 || created > 80000) continue;
+        const ipgumNum = (typeof ipgum === 'number' && ipgum > 30000 && ipgum < 80000) ? ipgum : null;
+        if (!txnsByVendor[vendor]) txnsByVendor[vendor] = [];
+        txnsByVendor[vendor].push({
+            created, sales, memo,
+            ipgum: ipgumNum,
+            gap: ipgumNum !== null ? (ipgumNum - created) : null,
+            paid: ipgumNum !== null
+        });
+    }
+
+    const all = Object.entries(txnsByVendor).map(([name, txns]) => {
+        const gaps = txns.filter(t => t.gap !== null && t.gap >= -10 && t.gap < 400).map(t => t.gap);
+        const totalAmount = txns.reduce((s, t) => s + t.sales, 0);
+        const paidAmount = txns.filter(t => t.paid).reduce((s, t) => s + t.sales, 0);
+        const unpaidAmount = totalAmount - paidAmount;
+        gaps.sort((a, b) => a - b);
+        const median = gaps.length ? gaps[Math.floor(gaps.length / 2)] : null;
+        const avg = gaps.length ? gaps.reduce((s, x) => s + x, 0) / gaps.length : null;
+        const min = gaps.length ? gaps[0] : null;
+        const max = gaps.length ? gaps[gaps.length - 1] : null;
+
+        // 갭 버킷 (당일=0~2 / 단기=3~7 / 10일=8~12 / 보름=13~17 / 장기=18~30 / 매우장기>30)
+        const buckets = { sameDay: 0, short: 0, tenDay: 0, biweek: 0, longTerm: 0, veryLong: 0 };
+        gaps.forEach(g => {
+            if (g <= 2) buckets.sameDay++;
+            else if (g <= 7) buckets.short++;
+            else if (g <= 12) buckets.tenDay++;
+            else if (g <= 17) buckets.biweek++;
+            else if (g <= 30) buckets.longTerm++;
+            else buckets.veryLong++;
+        });
+
+        // 패턴 분류
+        let pattern = '데이터부족';
+        if (gaps.length >= 3) {
+            const n = gaps.length;
+            const sameDayPct = buckets.sameDay / n;
+            const tenDayPct = buckets.tenDay / n;
+            if (sameDayPct >= 0.5) pattern = '당일지급';
+            else if (tenDayPct >= 0.5) pattern = '10일지급';
+            else if (sameDayPct >= 0.2 && tenDayPct >= 0.2) pattern = '혼합';
+            else if (median > 17) pattern = '장기지급';
+            else pattern = '기타';
+        } else if (gaps.length > 0) {
+            if (median <= 2) pattern = '당일지급';
+            else if (median >= 8 && median <= 12) pattern = '10일지급';
+            else pattern = '기타';
+        }
+
+        return {
+            name, txns, totalAmount, paidAmount, unpaidAmount,
+            count: txns.length, paidCount: txns.filter(t => t.paid).length,
+            gaps, median, avg, min, max, buckets, pattern
+        };
+    }).filter(v => v.count >= 2);
+
+    all.sort((a, b) => b.totalAmount - a.totalAmount);
+
+    const byName = {};
+    all.forEach(v => byName[v.name] = v);
+
+    const patternOrder = ['당일지급', '10일지급', '혼합', '장기지급', '기타', '데이터부족'];
+    const byPattern = {};
+    patternOrder.forEach(p => byPattern[p] = []);
+    all.forEach(v => { if (byPattern[v.pattern]) byPattern[v.pattern].push(v); });
+
+    _humanVendorStats = { all, byName, byPattern, patternOrder };
+}
+
+// f1 KM 업체명을 f7 매출 거래처명에 매핑 (KM-* → (주)케이엠파크)
+function findVendorStats(vendorName) {
+    if (!_humanVendorStats) return null;
+    const direct = _humanVendorStats.byName[vendorName];
+    if (direct) return direct;
+    if (vendorName.startsWith('KM-')) return _humanVendorStats.byName['(주)케이엠파크'] || null;
+    return null;
+}
+
 // 휴먼 업체별 청구 통계 — f1 요약 시트(예: '2026년 4월휴먼')에서 KM 업체별 통계 추출
 async function loadHumanBillingFromF1() {
     const card = document.getElementById('h-card-purchase');
@@ -338,18 +443,67 @@ async function loadHumanBillingFromF1() {
     if (cur) cur.textContent = totals.current.toLocaleString() + '원';
     if (cum) cum.textContent = totals.cumulative.toLocaleString() + '원';
     if (unp) unp.textContent = totals.unpaid.toLocaleString() + '원';
+
+    // f7 휴먼 시트 로드 → 업체별 지급 패턴 계산
+    let f7sheets = null;
+    try {
+        const saved = JSON.parse(localStorage.getItem('data_human_f7'));
+        if (saved && saved.sheets) f7sheets = saved.sheets;
+    } catch (e) {}
+    if (!f7sheets || !f7sheets['휴먼']) {
+        try {
+            const fileName = '2026.04-금전출납(세무용)_휴먼.xlsx';
+            const res = await fetch(encodeURIComponent(fileName));
+            if (res.ok) {
+                const buf = await res.arrayBuffer();
+                const wb = XLSX.read(new Uint8Array(buf), { type: 'array', dense: true });
+                f7sheets = {};
+                wb.SheetNames.forEach(s => {
+                    f7sheets[s] = XLSX.utils.sheet_to_json(wb.Sheets[s], { header: 1 });
+                });
+            }
+        } catch (e) {}
+    }
+    if (f7sheets && f7sheets['휴먼']) {
+        computeHumanVendorStats(f7sheets['휴먼']);
+    }
+
     if (body) {
-        body.innerHTML = vendors.map(v => `
-            <tr>
-                <td>${escapeHtml(v.name)}</td>
-                <td>${v.current.toLocaleString()}</td>
-                <td>${v.cumulative.toLocaleString()}</td>
-                <td class="${v.unpaid > 0 ? 'has-unpaid' : ''}">${v.unpaid.toLocaleString()}</td>
-                <td>${escapeHtml(v.status)}</td>
-            </tr>
-        `).join('');
+        body.innerHTML = vendors.map(v => {
+            const stats = findVendorStats(v.name);
+            const pattern = stats ? stats.pattern : '데이터없음';
+            const cls = patternToClass(pattern);
+            const tooltip = stats
+                ? `중앙값 ${stats.median ?? '—'}일 / 평균 ${stats.avg ? stats.avg.toFixed(1) : '—'}일 / n=${stats.count}건`
+                : '거래 이력 매칭 없음';
+            return `
+                <tr class="vendor-row" onclick="openVendorModal('${escapeHtml(v.name)}')" title="클릭 시 상세 (입금일 갭·청구내역)">
+                    <td>${escapeHtml(v.name)}</td>
+                    <td>${v.current.toLocaleString()}</td>
+                    <td>${v.cumulative.toLocaleString()}</td>
+                    <td class="${v.unpaid > 0 ? 'has-unpaid' : ''}">${v.unpaid.toLocaleString()}</td>
+                    <td><span class="pattern-badge ${cls}" title="${tooltip}">${pattern}</span></td>
+                </tr>
+            `;
+        }).join('');
     }
     if (wrap) wrap.style.display = 'block';
+
+    // 분류 보기 버튼 표시 여부
+    const catBtn = document.getElementById('h-billing-pattern-btn');
+    if (catBtn) catBtn.style.display = _humanVendorStats ? 'inline-block' : 'none';
+}
+
+function patternToClass(p) {
+    return ({
+        '당일지급': 'pat-same',
+        '10일지급': 'pat-ten',
+        '혼합': 'pat-mix',
+        '장기지급': 'pat-long',
+        '기타': 'pat-etc',
+        '데이터부족': 'pat-na',
+        '데이터없음': 'pat-na'
+    })[p] || 'pat-na';
 }
 
 // 휴먼 은행 계좌 현황 — f7 '시재' 시트 row 0의 (은행명, 잔액) 페어를 추출
@@ -791,11 +945,242 @@ function closeBankModal() {
 // ESC 키로 모달 닫기
 document.addEventListener('keydown', e => {
     if (e.key !== 'Escape') return;
+    const vpm = document.getElementById('vendor-pattern-modal');
+    if (vpm && vpm.style.display === 'block') { closeVendorPatternModal(); return; }
+    const vm = document.getElementById('vendor-detail-modal');
+    if (vm && vm.style.display === 'block') { closeVendorModal(); return; }
     const wm = document.getElementById('worker-card-modal');
     if (wm && wm.style.display === 'block') { closeWorkerModal(); return; }
     const bm = document.getElementById('bank-detail-modal');
     if (bm && bm.style.display === 'block') closeBankModal();
 });
+
+// 업체 상세 모달 — 청구→입금 갭 분석
+function openVendorModal(vendorName) {
+    const modal = document.getElementById('vendor-detail-modal');
+    const body = document.getElementById('vendor-modal-body');
+    const title = document.getElementById('vendor-modal-title');
+    if (!modal || !body || !title) return;
+
+    const stats = findVendorStats(vendorName);
+    const patternLabel = stats ? stats.pattern : '데이터없음';
+    const patternCls = patternToClass(patternLabel);
+    title.innerHTML = `📑 ${escapeHtml(vendorName)} <span class="pattern-badge ${patternCls}">${patternLabel}</span>`;
+
+    if (!stats || stats.count === 0) {
+        body.innerHTML = `
+            <div style="padding: 40px; text-align: center; color: #9ca3af;">
+                <div style="font-size: 2.5rem; margin-bottom: 12px;">📭</div>
+                <div style="font-size: 0.95rem; font-weight: 600; color: #6b7280;">매출 거래 이력 없음</div>
+                <div style="font-size: 0.78rem; margin-top: 8px;">금전출납(세무용·휴먼) 시트의 매출 데이터에서 매칭되는 업체를 찾지 못했습니다.<br>업체명 표기가 일치하는지 확인하세요.</div>
+            </div>
+        `;
+        modal.style.display = 'block';
+        document.body.style.overflow = 'hidden';
+        return;
+    }
+
+    const fmtSerial = s => {
+        if (typeof s !== 'number') return '—';
+        const d = new Date((s - 25569) * 86400 * 1000);
+        return `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    };
+    const fmtFullSerial = s => {
+        if (typeof s !== 'number') return '—';
+        const d = new Date((s - 25569) * 86400 * 1000);
+        return `${String(d.getFullYear()).slice(2)}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    };
+
+    // 1. 요약 4카드
+    const unpaidCount = stats.count - stats.paidCount;
+    const summaryHtml = `
+        <div class="vm-summary">
+            <div class="vm-sum-card"><div class="vms-label">총 청구건수</div><div class="vms-val">${stats.count}건</div></div>
+            <div class="vm-sum-card ok"><div class="vms-label">입금완료</div><div class="vms-val">${stats.paidCount}건 / ${stats.paidAmount.toLocaleString()}원</div></div>
+            <div class="vm-sum-card alert"><div class="vms-label">미입금</div><div class="vms-val">${unpaidCount}건 / ${stats.unpaidAmount.toLocaleString()}원</div></div>
+            <div class="vm-sum-card"><div class="vms-label">평균/중앙값 갭</div><div class="vms-val">${stats.avg ? stats.avg.toFixed(1) : '—'}일 / ${stats.median ?? '—'}일</div></div>
+        </div>
+    `;
+
+    // 2. 갭 히스토그램
+    const total = stats.gaps.length;
+    const histDef = [
+        { key: 'sameDay', label: '당일', range: '0~2일', cls: 'same' },
+        { key: 'short', label: '단기', range: '3~7일', cls: 'short' },
+        { key: 'tenDay', label: '10일', range: '8~12일', cls: 'ten' },
+        { key: 'biweek', label: '2주', range: '13~17일', cls: 'biweek' },
+        { key: 'longTerm', label: '장기', range: '18~30일', cls: 'long' },
+        { key: 'veryLong', label: '매우장기', range: '30일+', cls: 'very' },
+    ];
+    const histHtml = `
+        <div class="vm-section">
+            <h4>📊 청구→입금 갭 분포 <span class="vms-meta">유효 ${total}건 / 최소 ${stats.min ?? '—'}일 · 최대 ${stats.max ?? '—'}일</span></h4>
+            <div class="vm-hist">
+                ${histDef.map(h => {
+                    const c = stats.buckets[h.key] || 0;
+                    const pct = total > 0 ? (c / total * 100).toFixed(0) : 0;
+                    return `<div class="vm-hist-bar ${h.cls}">
+                        <div class="vmh-label">${h.label}</div>
+                        <div class="vmh-range">${h.range}</div>
+                        <div class="vmh-count">${c}</div>
+                        <div class="vmh-pct">${pct}%</div>
+                    </div>`;
+                }).join('')}
+            </div>
+        </div>
+    `;
+
+    // 3. 다음 예상 입금일 안내 (최근 미입금 청구 + 평균 갭)
+    let forecastHtml = '';
+    const unpaidTxns = stats.txns.filter(t => !t.paid).sort((a, b) => b.created - a.created);
+    if (unpaidTxns.length > 0 && stats.median !== null) {
+        const recent = unpaidTxns[0];
+        const expected = recent.created + (stats.median || 10);
+        const today = Math.round(new Date().getTime() / 86400000) + 25569;
+        const daysUntil = expected - today;
+        const status = daysUntil > 0 ? `${daysUntil}일 후 예정` : (daysUntil === 0 ? '오늘 예정' : `${-daysUntil}일 지연`);
+        const cls = daysUntil >= 0 ? 'ok' : 'alert';
+        forecastHtml = `
+            <div class="vm-forecast" style="${daysUntil < 0 ? 'background:linear-gradient(135deg,#fef2f2,#fecaca);border-color:#f87171;' : ''}">
+                <div class="vmf-icon">${daysUntil >= 0 ? '📅' : '⚠️'}</div>
+                <div class="vmf-text">
+                    <div class="vmf-title">📌 다음 예상 입금일: ${fmtFullSerial(expected)} (${status})</div>
+                    <div class="vmf-detail">최근 청구 ${fmtFullSerial(recent.created)} · ${recent.sales.toLocaleString()}원 · 패턴 중앙값 ${stats.median}일 적용</div>
+                </div>
+            </div>
+        `;
+    }
+
+    // 4. 청구 내역 테이블 (최신순, 최근 30건)
+    const sortedTxns = [...stats.txns].sort((a, b) => b.created - a.created).slice(0, 30);
+    const ledgerRows = sortedTxns.map(t => {
+        const gapCls = t.gap === null ? 'unpaid' : (t.gap <= 2 ? 'same-day' : (t.gap <= 12 ? 'ten-day' : 'long-day'));
+        const gapText = t.gap === null ? '미입금' : `${t.gap}일`;
+        return `
+            <tr>
+                <td class="date">${fmtSerial(t.created)}</td>
+                <td class="amt">${t.sales.toLocaleString()}</td>
+                <td class="date">${t.ipgum ? fmtSerial(t.ipgum) : '—'}</td>
+                <td class="gap ${gapCls}">${gapText}</td>
+                <td class="memo">${escapeHtml(t.memo || '')}</td>
+            </tr>
+        `;
+    }).join('');
+    const ledgerHtml = `
+        <div class="vm-section">
+            <h4>📋 청구 내역 (최근 30건) <span class="vms-meta">전체 ${stats.count}건 중</span></h4>
+            <div class="vm-ledger-wrap">
+                <table class="vm-ledger-table">
+                    <thead><tr><th>청구일</th><th>금액</th><th>입금일</th><th>갭</th><th>비고</th></tr></thead>
+                    <tbody>${ledgerRows || '<tr><td colspan="5" style="text-align:center;color:#9ca3af;padding:14px;">데이터 없음</td></tr>'}</tbody>
+                </table>
+            </div>
+        </div>
+    `;
+
+    body.innerHTML = summaryHtml + histHtml + forecastHtml + ledgerHtml;
+    modal.style.display = 'block';
+    document.body.style.overflow = 'hidden';
+}
+
+function closeVendorModal() {
+    const modal = document.getElementById('vendor-detail-modal');
+    if (modal) modal.style.display = 'none';
+    if (!isAnyModalOpen()) document.body.style.overflow = '';
+}
+
+function isAnyModalOpen() {
+    return ['vendor-detail-modal', 'vendor-pattern-modal', 'worker-card-modal', 'bank-detail-modal']
+        .some(id => {
+            const el = document.getElementById(id);
+            return el && el.style.display === 'block';
+        });
+}
+
+// 업체 지급패턴 분류 모달
+function openVendorPatternModal() {
+    if (!_humanVendorStats) return;
+    const modal = document.getElementById('vendor-pattern-modal');
+    const body = document.getElementById('vendor-pattern-body');
+    if (!modal || !body) return;
+
+    const { byPattern, patternOrder, all } = _humanVendorStats;
+    const helpHtml = `
+        <div class="vp-help">
+            💡 <b>지급패턴 분류 기준</b> — 매출 거래의 청구일(작성일자) → 입금일 갭을 분석하여 자동 분류합니다.<br>
+            • <b>당일지급</b>: 갭 0~2일이 50% 이상 · 즉시 정산 업체 (현금성·내부거래 위주)<br>
+            • <b>10일지급</b>: 갭 8~12일이 50% 이상 · 정기 결제일 업체 (가장 일반적)<br>
+            • <b>혼합 (당일+10일)</b>: 두 패턴이 모두 20% 이상 — 일정 관리 시 <b style="color:#92400e;">혼선 주의</b><br>
+            • <b>장기지급</b>: 중앙값 18일 초과 · 분기/세금계산서 정산 업체<br>
+            업체명을 클릭하면 상세 분석을 볼 수 있습니다.
+        </div>
+    `;
+
+    const patternMeta = {
+        '당일지급': { icon: '⚡', desc: '청구 즉시(0~2일 내) 입금되는 업체. 현금성 거래·내부 정산 위주.', cls: 'pat-same' },
+        '10일지급': { icon: '📅', desc: '청구 후 약 10일(8~12일) 후 입금되는 업체. 가장 일반적인 정기 결제 패턴.', cls: 'pat-ten' },
+        '혼합': { icon: '⚠️', desc: '당일지급과 10일지급 패턴이 혼재. 청구별로 입금 시점이 달라 일정 관리 주의 필요.', cls: 'pat-mix' },
+        '장기지급': { icon: '🐢', desc: '중앙값 18일 초과로 장기간 후 입금. 자금 흐름 예측 시 별도 고려.', cls: 'pat-long' },
+        '기타': { icon: '📊', desc: '특정 패턴에 부합하지 않는 업체.', cls: 'pat-etc' },
+        '데이터부족': { icon: '❓', desc: '거래 건수가 부족해 패턴을 추정할 수 없음.', cls: 'pat-na' }
+    };
+
+    const tabs = patternOrder.filter(p => byPattern[p].length > 0);
+    const tabsHtml = tabs.map((p, i) => `
+        <button class="vp-tab ${i === 0 ? 'active' : ''}" data-pattern="${p}" onclick="switchVendorPatternTab('${p}')">
+            ${patternMeta[p]?.icon || '•'} ${p}
+            <span class="vp-tab-count">${byPattern[p].length}</span>
+        </button>
+    `).join('');
+
+    const panesHtml = tabs.map((p, i) => {
+        const list = byPattern[p];
+        const meta = patternMeta[p] || {};
+        const items = list.map(v => `
+            <div class="vp-vendor-item" data-vendor="${escapeHtml(v.name)}">
+                <span class="vpv-name" title="${escapeHtml(v.name)}">${escapeHtml(v.name)}</span>
+                <span class="vpv-stat"><span class="vpv-l">중앙갭/평균</span>${v.median ?? '—'}일 / ${v.avg ? v.avg.toFixed(1) : '—'}일</span>
+                <span class="vpv-amt"><span class="vpv-l" style="color:#9ca3af;">총 청구</span>${v.totalAmount.toLocaleString()}원</span>
+                <span class="vpv-paid"><span class="vpv-l" style="color:#9ca3af;">입금완료</span>${v.paidCount}/${v.count}건</span>
+                <span class="vpv-arrow">→</span>
+            </div>
+        `).join('') || '<div class="vp-empty">해당 패턴의 업체 없음</div>';
+        return `
+            <div class="vp-pane ${i === 0 ? 'active' : ''}" data-pattern="${p}">
+                <div class="vp-pane-desc">${meta.icon || ''} ${meta.desc || ''}</div>
+                <div class="vp-vendor-list">${items}</div>
+            </div>
+        `;
+    }).join('');
+
+    body.innerHTML = helpHtml +
+        `<div class="vp-tabs">${tabsHtml}</div>` +
+        panesHtml +
+        `<p style="margin-top:14px; font-size:0.7rem; color:#95a5a6; text-align:right;">📌 분석 대상: 매출 거래 ${all.length}개 업체 (2건 이상)</p>`;
+
+    // 업체 클릭 → 패턴 모달 닫고 상세 모달 열기 (위임 핸들러)
+    body.querySelectorAll('.vp-vendor-item').forEach(el => {
+        el.addEventListener('click', () => {
+            const name = el.dataset.vendor;
+            closeVendorPatternModal();
+            openVendorModal(name);
+        });
+    });
+
+    modal.style.display = 'block';
+    document.body.style.overflow = 'hidden';
+}
+
+function switchVendorPatternTab(pattern) {
+    document.querySelectorAll('.vp-tab').forEach(t => t.classList.toggle('active', t.dataset.pattern === pattern));
+    document.querySelectorAll('.vp-pane').forEach(p => p.classList.toggle('active', p.dataset.pattern === pattern));
+}
+
+function closeVendorPatternModal() {
+    const modal = document.getElementById('vendor-pattern-modal');
+    if (modal) modal.style.display = 'none';
+    if (!isAnyModalOpen()) document.body.style.overflow = '';
+}
 
 // 휴먼 분기별 부가세 — f7 '휴먼' 시트의 매출/매입 공급가액을 연·분기로 그룹화하여 직접 계산
 let _humanVATData = null; // { byYear: { 2026: { Q1: {...}, ..., total: {...} }, ... } }
