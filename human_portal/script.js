@@ -431,25 +431,7 @@ async function loadHumanBankFromF7() {
     }
     if (!session) return;
 
-    const wrap = document.getElementById('h-bank-wrap');
-    const tbody = document.getElementById('h-bank-body');
-    if (tbody) {
-        tbody.innerHTML = banks.map(b => {
-            let cls = '';
-            if (b.balance === 0) cls = 'zero-bal';
-            else if (b.balance < 0) cls = 'neg-bal';
-            return `
-                <tr>
-                    <td>${escapeHtml(b.name)}</td>
-                    <td class="${cls}">${b.balance.toLocaleString()}</td>
-                </tr>
-            `;
-        }).join('');
-    }
-    if (wrap) wrap.style.display = 'block';
-
-    // 거래 데이터 파싱 (시재 시트 row 4부터: 계좌·날짜·적요·입금·출금·제외항목)
-    // → 주간 변동 추이 + 은행별 주요 매출 기업
+    // 거래 데이터 파싱 (시재 시트 row 4부터: 계좌·날짜·적요·입금·출금)
     const txns = [];
     let minSerial = Infinity, maxSerial = -Infinity;
     for (let i = 4; i < sheet.length; i++) {
@@ -464,139 +446,155 @@ async function loadHumanBankFromF7() {
         if (dep === 0 && wd === 0) continue;
         if (serial < minSerial) minSerial = serial;
         if (serial > maxSerial) maxSerial = serial;
-        txns.push({
-            bank: bankName,
-            serial,
-            desc: toStr(r[2]),
-            dep,
-            wd,
-        });
+        txns.push({ bank: bankName, serial, desc: toStr(r[2]), dep, wd });
     }
 
-    renderHumanBankTrend(banks, txns, minSerial, maxSerial);
-    renderHumanBankTopCompanies(banks, txns, minSerial, maxSerial);
-}
-
-// 주간 변동 추이 — 데이터 기간을 7일 단위로 분할(W1=days 1-7, ...)하여 은행별 순변동 표시
-function renderHumanBankTrend(banks, txns, minSerial, maxSerial) {
-    const wrap = document.getElementById('h-bank-trend-wrap');
-    const head = document.getElementById('h-bank-trend-head');
-    const body = document.getElementById('h-bank-trend-body');
-    const period = document.getElementById('h-bank-trend-period');
-    if (!wrap || !head || !body) return;
-    if (!txns.length) { wrap.style.display = 'none'; return; }
-
-    // 기간 표기 (yy-mm-dd ~ yy-mm-dd) — 가장 큰 serial이 속한 달 기준 1~말일을 주차로 분할
-    const maxDate = new Date((maxSerial - 25569) * 86400 * 1000);
-    const year = maxDate.getFullYear();
-    const month = maxDate.getMonth(); // 0-based
-    const monthEnd = new Date(year, month + 1, 0).getDate();
-    const monthStart = new Date(year, month, 1);
-    const monthStartSerial = Math.round(monthStart.getTime() / 86400000) + 25569;
-
-    // 주차 정의: W1=1-7, W2=8-14, W3=15-21, W4=22-28, W5=29~말일
-    const weeks = [];
-    for (let s = 1; s <= monthEnd; s += 7) {
-        const e = Math.min(s + 6, monthEnd);
-        weeks.push({ label: `W${weeks.length + 1}`, range: `${s}~${e}일`, startSerial: monthStartSerial + (s - 1), endSerial: monthStartSerial + (e - 1) });
-    }
-
-    if (period) {
-        const yy = String(year).slice(2);
-        const mm = String(month + 1).padStart(2, '0');
-        period.textContent = `(${yy}-${mm}월 기준 · 거래 ${txns.length}건)`;
-    }
-
-    // 헤더
-    head.innerHTML = `<tr><th>은행</th>${weeks.map(w => `<th>${w.label}<br><span style="font-weight:400;font-size:0.66rem;opacity:0.85;">${w.range}</span></th>`).join('')}<th>월계</th></tr>`;
-
-    // 은행 순서 = 잔액 카드와 동일 (banks 배열 순서)
+    // 잔액에 있지만 거래엔 없는 은행도 포함하도록 통합 은행 목록 구성
     const bankNames = banks.map(b => b.name);
-    // 시재 거래에는 등장하지만 잔액 라벨에는 없는 은행도 보존
     txns.forEach(t => { if (!bankNames.includes(t.bank)) bankNames.push(t.bank); });
 
+    // 주차 정의 (가장 큰 거래일이 속한 달의 1~말일을 7일 단위로 분할)
+    let weeks = [];
+    if (isFinite(maxSerial)) {
+        const maxDate = new Date((maxSerial - 25569) * 86400 * 1000);
+        const year = maxDate.getFullYear();
+        const month = maxDate.getMonth();
+        const monthEnd = new Date(year, month + 1, 0).getDate();
+        const monthStartSerial = Math.round(new Date(year, month, 1).getTime() / 86400000) + 25569;
+        for (let s = 1; s <= monthEnd; s += 7) {
+            const e = Math.min(s + 6, monthEnd);
+            weeks.push({ label: `W${weeks.length + 1}`, range: `${s}~${e}일`, startSerial: monthStartSerial + (s - 1), endSerial: monthStartSerial + (e - 1) });
+        }
+    }
+
+    _humanBankData = { banks, bankNames, txns, weeks, total };
+
+    renderHumanBankPills();
+}
+
+// 은행별 데이터 캐시 (hover로 펼쳐지는 detail 영역용)
+let _humanBankData = null;
+let _humanBankActive = null;
+
+function renderHumanBankPills() {
+    const pills = document.getElementById('h-bank-pills');
+    const wrap = document.getElementById('h-bank-wrap');
+    if (!pills || !_humanBankData) return;
+
+    const { banks, total } = _humanBankData;
+    const fmtBalCls = v => v === 0 ? 'zero' : (v < 0 ? 'neg' : '');
+
+    const html = [
+        `<div class="bank-pill total" data-bank="__total__">
+            <span class="bp-name">합계</span>
+            <span class="bp-bal">${total.toLocaleString()}원</span>
+        </div>`,
+        ...banks.map(b => `
+            <div class="bank-pill" data-bank="${escapeHtml(b.name)}">
+                <span class="bp-name">${escapeHtml(b.name)}</span>
+                <span class="bp-bal ${fmtBalCls(b.balance)}">${b.balance.toLocaleString()}원</span>
+            </div>
+        `)
+    ].join('');
+    pills.innerHTML = html;
+
+    // 이벤트 위임: hover/click 모두 같은 핸들러
+    pills.querySelectorAll('.bank-pill').forEach(el => {
+        const name = el.dataset.bank;
+        el.addEventListener('mouseenter', () => activateBank(name));
+        el.addEventListener('click', () => activateBank(name));
+    });
+
+    if (wrap) wrap.style.display = 'block';
+
+    // 마지막으로 활성화한 은행 복원 (자동 갱신 시 깜빡임 방지)
+    if (_humanBankActive) activateBank(_humanBankActive);
+}
+
+function activateBank(name) {
+    _humanBankActive = name;
+    const pills = document.getElementById('h-bank-pills');
+    if (pills) {
+        pills.querySelectorAll('.bank-pill').forEach(el => {
+            el.classList.toggle('active', el.dataset.bank === name);
+        });
+    }
+    renderHumanBankDetail(name);
+}
+
+function renderHumanBankDetail(name) {
+    const detail = document.getElementById('h-bank-detail');
+    if (!detail || !_humanBankData) return;
+    const { bankNames, txns, weeks } = _humanBankData;
+
+    const isTotal = name === '__total__';
+    const targetTxns = isTotal ? txns : txns.filter(t => t.bank === name);
+    const headerName = isTotal ? '전체 합계' : name;
+
+    // 주간 변동
     const fmt = v => (v >= 0 ? '+' : '') + v.toLocaleString();
     const cls = v => v > 0 ? 'pos' : (v < 0 ? 'neg' : 'zero');
-    const colTotals = weeks.map(() => 0);
-    let grandTotal = 0;
-
-    const rows = bankNames.map(name => {
-        const cells = weeks.map((w, idx) => {
-            let net = 0;
-            txns.forEach(t => {
-                if (t.bank === name && t.serial >= w.startSerial && t.serial <= w.endSerial) {
-                    net += t.dep - t.wd;
-                }
-            });
-            colTotals[idx] += net;
-            return `<td class="${cls(net)}">${net === 0 ? '—' : fmt(net)}</td>`;
-        });
-        const rowTotal = txns.filter(t => t.bank === name).reduce((s, t) => s + t.dep - t.wd, 0);
-        grandTotal += rowTotal;
-        return `<tr><td>${escapeHtml(name)}</td>${cells.join('')}<td class="${cls(rowTotal)}">${rowTotal === 0 ? '—' : fmt(rowTotal)}</td></tr>`;
-    });
-
-    // 주별 합계 행
-    const totalCells = colTotals.map(v => `<td class="${cls(v)}">${v === 0 ? '—' : fmt(v)}</td>`).join('');
-    rows.push(`<tr class="row-total"><td>전체 합계</td>${totalCells}<td class="${cls(grandTotal)}">${grandTotal === 0 ? '—' : fmt(grandTotal)}</td></tr>`);
-
-    body.innerHTML = rows.join('');
-    wrap.style.display = 'block';
-}
-
-// 은행별 주요 매출 기업 — 적요별 입금액 합계 상위 5개
-function renderHumanBankTopCompanies(banks, txns, minSerial, maxSerial) {
-    const wrap = document.getElementById('h-bank-top-wrap');
-    const grid = document.getElementById('h-bank-top-grid');
-    const period = document.getElementById('h-bank-top-period');
-    if (!wrap || !grid) return;
-    if (!txns.length) { wrap.style.display = 'none'; return; }
-
-    if (period && isFinite(minSerial) && isFinite(maxSerial)) {
-        const fmtD = s => {
-            const d = new Date((s - 25569) * 86400 * 1000);
-            return `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-        };
-        period.textContent = `(${fmtD(minSerial)} ~ ${fmtD(maxSerial)})`;
-    }
-
-    const bankNames = banks.map(b => b.name);
-    txns.forEach(t => { if (!bankNames.includes(t.bank)) bankNames.push(t.bank); });
-
-    const cards = bankNames.map(name => {
-        // 해당 은행의 입금만 적요별 합산
-        const byDesc = {};
-        txns.forEach(t => {
-            if (t.bank !== name || t.dep <= 0) return;
-            const key = t.desc || '(미기재)';
-            if (!byDesc[key]) byDesc[key] = { sum: 0, count: 0 };
-            byDesc[key].sum += t.dep;
-            byDesc[key].count++;
-        });
-        const sorted = Object.entries(byDesc).sort((a, b) => b[1].sum - a[1].sum);
-        const top = sorted.slice(0, 5);
-        const totalSum = sorted.reduce((s, [, v]) => s + v.sum, 0);
-
-        if (top.length === 0) {
-            return `<div class="bank-top-card empty">
-                <h5><span class="bt-bank">${escapeHtml(name)}</span><span class="bt-sum">입금 없음</span></h5>
-                <div class="bt-empty">해당 기간 입금 내역 없음</div>
-            </div>`;
-        }
-        const items = top.map(([desc, v]) => `
-            <li>
-                <span class="bt-name" title="${escapeHtml(desc)}">${escapeHtml(desc)}</span>
-                <span class="bt-amt">${v.sum.toLocaleString()}<span class="bt-cnt">×${v.count}</span></span>
-            </li>
-        `).join('');
-        return `<div class="bank-top-card">
-            <h5><span class="bt-bank">${escapeHtml(name)}</span><span class="bt-sum">∑ ${totalSum.toLocaleString()}원</span></h5>
-            <ol>${items}</ol>
+    const weekCells = weeks.map(w => {
+        const net = targetTxns
+            .filter(t => t.serial >= w.startSerial && t.serial <= w.endSerial)
+            .reduce((s, t) => s + t.dep - t.wd, 0);
+        return `<div class="bd-trend-cell">
+            <div class="bdt-w">${w.label}</div>
+            <div class="bdt-r">${w.range}</div>
+            <div class="bdt-v ${cls(net)}">${net === 0 ? '—' : fmt(net)}</div>
         </div>`;
-    });
+    }).join('');
+    const monthNet = targetTxns.reduce((s, t) => s + t.dep - t.wd, 0);
+    const monthCell = `<div class="bd-trend-cell month-total">
+        <div class="bdt-w">월계</div>
+        <div class="bdt-r">합산</div>
+        <div class="bdt-v ${cls(monthNet)}">${monthNet === 0 ? '—' : fmt(monthNet)}</div>
+    </div>`;
 
-    grid.innerHTML = cards.join('');
-    wrap.style.display = 'block';
+    // 주요 매출 기업 (입금 적요별 상위 5)
+    const byDesc = {};
+    targetTxns.forEach(t => {
+        if (t.dep <= 0) return;
+        const key = t.desc || '(미기재)';
+        if (!byDesc[key]) byDesc[key] = { sum: 0, count: 0 };
+        byDesc[key].sum += t.dep;
+        byDesc[key].count++;
+    });
+    const sorted = Object.entries(byDesc).sort((a, b) => b[1].sum - a[1].sum);
+    const top = sorted.slice(0, 5);
+    const totalDeposits = sorted.reduce((s, [, v]) => s + v.sum, 0);
+    const topHtml = top.length === 0
+        ? `<div class="bd-empty">해당 기간 입금 내역 없음</div>`
+        : `<ol class="bd-top-list">${top.map(([desc, v]) => `
+            <li>
+                <span class="bdt-name" title="${escapeHtml(desc)}">${escapeHtml(desc)}</span>
+                <span class="bdt-amt">${v.sum.toLocaleString()}<span class="bdt-cnt">×${v.count}</span></span>
+            </li>
+        `).join('')}</ol>`;
+
+    const monthLabel = weeks.length ? (() => {
+        const d = new Date((weeks[0].startSerial - 25569) * 86400 * 1000);
+        return `${String(d.getFullYear()).slice(2)}-${String(d.getMonth() + 1).padStart(2, '0')}월`;
+    })() : '';
+
+    detail.innerHTML = `
+        <div class="bank-detail-content">
+            <div class="bank-detail-section">
+                <h6>
+                    <span><span class="bds-bank">${escapeHtml(headerName)}</span> · 📈 주간 변동</span>
+                    <span class="bds-meta">${monthLabel} · ${targetTxns.length}건</span>
+                </h6>
+                <div class="bd-trend">${weekCells}${monthCell}</div>
+            </div>
+            <div class="bank-detail-section">
+                <h6>
+                    <span><span class="bds-bank">${escapeHtml(headerName)}</span> · 🏢 주요 매출 기업</span>
+                    <span class="bds-meta">∑ ${totalDeposits.toLocaleString()}원</span>
+                </h6>
+                ${topHtml}
+            </div>
+        </div>
+    `;
 }
 
 // 휴먼 분기별 부가세 — f7 '휴먼' 시트의 매출/매입 공급가액을 연·분기로 그룹화하여 직접 계산
