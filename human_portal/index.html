@@ -623,11 +623,102 @@
             .form-tile-buttons .btn-upload:hover { background: #27ae60; color: white; }
             .form-tile-status { position: absolute; top: 6px; right: 6px; width: 8px; height: 8px; border-radius: 50%; background: #ddd; }
             .form-tile-status.uploaded { background: #27ae60; box-shadow: 0 0 4px rgba(39,174,96,0.5); }
+
+            /* 은행 상세 모달 */
+            .bank-modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.55); animation: bm-fade 0.15s ease; }
+            @keyframes bm-fade { from { opacity: 0; } to { opacity: 1; } }
+            @keyframes bm-slide { from { transform: translateY(-20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+            .bank-modal-content { background: white; margin: 4% auto; padding: 0; border-radius: 12px; width: 92%; max-width: 980px; max-height: 88vh; overflow: hidden; box-shadow: 0 10px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column; animation: bm-slide 0.2s ease; }
+            .bank-modal-header { display: flex; justify-content: space-between; align-items: center; padding: 14px 22px; background: linear-gradient(135deg, #2980b9, #1f618d); color: white; flex-shrink: 0; }
+            .bank-modal-header h2 { margin: 0; font-size: 1.1rem; font-weight: 700; display: flex; align-items: center; gap: 10px; }
+            .bank-modal-header .bm-bal-tag { font-family: 'Roboto Mono', monospace; font-size: 0.85rem; background: rgba(255,255,255,0.2); padding: 3px 10px; border-radius: 12px; font-weight: 600; }
+            .bank-modal-close { font-size: 28px; font-weight: bold; cursor: pointer; line-height: 1; padding: 0 6px; transition: opacity 0.15s; user-select: none; }
+            .bank-modal-close:hover { opacity: 0.7; }
+            .bank-modal-body { padding: 16px 22px 20px; overflow-y: auto; flex: 1; }
+
+            /* 모달 내부 — 요약 카드 */
+            .bm-summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 16px; }
+            @media (max-width: 700px) { .bm-summary { grid-template-columns: repeat(2, 1fr); } }
+            .bm-sum-card { padding: 10px 12px; border-radius: 8px; background: #f4faff; border: 1px solid #d6eaf8; }
+            .bm-sum-card .bms-label { font-size: 0.7rem; color: #7f8c8d; font-weight: 600; }
+            .bm-sum-card .bms-value { font-size: 1rem; font-weight: 700; font-family: 'Roboto Mono', monospace; color: #1f618d; margin-top: 4px; }
+            .bm-sum-card .bms-value.pos { color: #16a085; }
+            .bm-sum-card .bms-value.neg { color: #c0392b; }
+            .bm-sum-card .bms-value.zero { color: #95a5a6; }
+
+            .bm-section { margin-top: 14px; }
+            .bm-section-title { font-size: 0.92rem; font-weight: 700; color: #2c3e50; margin: 0 0 10px; padding-bottom: 6px; border-bottom: 2px solid #2980b9; display: flex; justify-content: space-between; align-items: center; }
+            .bm-section-title .bms-meta { font-size: 0.7rem; color: #7f8c8d; font-weight: 500; font-family: 'Roboto Mono', monospace; }
+
+            /* 모달 — 주간 변동 (확대판) */
+            .bm-trend { display: grid; grid-template-columns: repeat(auto-fit, minmax(86px, 1fr)); gap: 6px; }
+            .bm-trend-cell { padding: 10px 6px; border: 1px solid #ecf0f1; border-radius: 6px; background: #fbfcfe; text-align: center; }
+            .bm-trend-cell .bmt-w { font-size: 0.78rem; color: #7f8c8d; font-weight: 700; letter-spacing: 0.4px; }
+            .bm-trend-cell .bmt-r { font-size: 0.66rem; color: #95a5a6; font-family: 'Roboto Mono', monospace; }
+            .bm-trend-cell .bmt-v { font-family: 'Roboto Mono', monospace; font-size: 0.85rem; font-weight: 700; margin-top: 6px; }
+            .bm-trend-cell .bmt-v.pos { color: #16a085; }
+            .bm-trend-cell .bmt-v.neg { color: #c0392b; }
+            .bm-trend-cell .bmt-v.zero { color: #bbb; font-weight: 400; }
+            .bm-trend-cell.month-total { background: #fef3c7; border-color: #f59e0b; }
+            .bm-trend-cell.month-total .bmt-w { color: #92400e; }
+
+            /* 모달 — 주요 입금/출금 2열 */
+            .bm-top-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+            @media (max-width: 700px) { .bm-top-grid { grid-template-columns: 1fr; } }
+            .bm-top-card { border: 1px solid #ecf0f1; border-radius: 6px; padding: 10px 12px; background: #fbfcfe; }
+            .bm-top-card h6 { margin: 0 0 8px; font-size: 0.85rem; display: flex; justify-content: space-between; align-items: center; padding-bottom: 6px; border-bottom: 1px solid #ecf0f1; }
+            .bm-top-card.dep h6 { color: #16a085; }
+            .bm-top-card.wd h6 { color: #c0392b; }
+            .bm-top-card .bmt-sum { font-family: 'Roboto Mono', monospace; font-size: 0.78rem; font-weight: 700; }
+            .bm-top-card ol { list-style: none; padding: 0; margin: 0; counter-reset: bmt; }
+            .bm-top-card li { display: flex; align-items: center; gap: 8px; padding: 5px 0; font-size: 0.8rem; counter-increment: bmt; border-bottom: 1px dashed #ecf0f1; }
+            .bm-top-card li:last-child { border-bottom: none; }
+            .bm-top-card li::before { content: counter(bmt); color: white; min-width: 18px; height: 18px; line-height: 18px; text-align: center; border-radius: 50%; font-size: 0.68rem; font-weight: 700; flex-shrink: 0; }
+            .bm-top-card.dep li::before { background: #16a085; }
+            .bm-top-card.wd li::before { background: #c0392b; }
+            .bm-top-card .bmt-name { flex: 1; color: #2c3e50; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+            .bm-top-card .bmt-amt { font-family: 'Roboto Mono', monospace; font-weight: 700; white-space: nowrap; }
+            .bm-top-card.dep .bmt-amt { color: #16a085; }
+            .bm-top-card.wd .bmt-amt { color: #c0392b; }
+            .bm-top-card .bmt-cnt { color: #95a5a6; font-size: 0.7rem; margin-left: 4px; font-family: 'Roboto Mono', monospace; }
+            .bm-top-card .bmt-empty { color: #95a5a6; font-size: 0.78rem; text-align: center; padding: 12px 0; font-style: italic; }
+
+            /* 모달 — 최근 10일 거래 내역 */
+            .bm-ledger-wrap { max-height: 360px; overflow-y: auto; border: 1px solid #ecf0f1; border-radius: 6px; }
+            .bm-ledger-table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+            .bm-ledger-table th { position: sticky; top: 0; background: #2980b9; color: white; padding: 8px 10px; font-weight: 600; text-align: center; z-index: 1; white-space: nowrap; }
+            .bm-ledger-table td { padding: 6px 10px; border-bottom: 1px solid #f3f4f6; }
+            .bm-ledger-table tr:nth-child(even) td { background: #f9fafb; }
+            .bm-ledger-table tr:hover td { background: #e3f2fd; }
+            .bm-ledger-table td.date { font-family: 'Roboto Mono', monospace; color: #555; white-space: nowrap; text-align: center; font-weight: 600; }
+            .bm-ledger-table td.bank { font-weight: 700; color: #1f618d; text-align: center; white-space: nowrap; }
+            .bm-ledger-table td.bank::before { content: '🏦 '; opacity: 0.5; }
+            .bm-ledger-table td.desc { color: #2c3e50; }
+            .bm-ledger-table td.dep { font-family: 'Roboto Mono', monospace; text-align: right; color: #16a085; font-weight: 600; white-space: nowrap; }
+            .bm-ledger-table td.wd { font-family: 'Roboto Mono', monospace; text-align: right; color: #c0392b; font-weight: 600; white-space: nowrap; }
+            .bm-ledger-table td.run { font-family: 'Roboto Mono', monospace; text-align: right; color: #1f618d; font-weight: 700; background: #f0f8ff !important; white-space: nowrap; }
+            .bm-ledger-table td.zero-cell { color: #ddd; }
+            .bm-ledger-table tr.day-divider td { background: #e8f4fd !important; font-weight: 700; color: #1f618d; padding: 5px 10px; font-size: 0.76rem; }
+            .bm-ledger-table tr.day-divider td .day-net { float: right; font-family: 'Roboto Mono', monospace; font-weight: 700; }
+            .bm-ledger-table tr.day-divider td .day-net.pos { color: #16a085; }
+            .bm-ledger-table tr.day-divider td .day-net.neg { color: #c0392b; }
+            .bm-ledger-empty { text-align: center; padding: 30px; color: #95a5a6; font-size: 0.85rem; }
         </style>
 
         <footer>
             <p>&copy; 2026 (주)휴먼엠에스 | 통합 시설 관리 보안 데이터 포털</p>
         </footer>
+    </div>
+
+    <!-- 은행 상세 모달 -->
+    <div id="bank-detail-modal" class="bank-modal" onclick="if(event.target===this) closeBankModal()">
+        <div class="bank-modal-content">
+            <div class="bank-modal-header">
+                <h2 id="bank-modal-title">🏦 은행 상세 내역</h2>
+                <span class="bank-modal-close" onclick="closeBankModal()" title="닫기 (ESC)">&times;</span>
+            </div>
+            <div id="bank-modal-body" class="bank-modal-body"></div>
+        </div>
     </div>
 
     <script src="script.js"></script>

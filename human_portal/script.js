@@ -498,11 +498,11 @@ function renderHumanBankPills() {
     ].join('');
     pills.innerHTML = html;
 
-    // 이벤트 위임: hover/click 모두 같은 핸들러
+    // hover → 인라인 미리보기 / click → 상세 모달
     pills.querySelectorAll('.bank-pill').forEach(el => {
         const name = el.dataset.bank;
         el.addEventListener('mouseenter', () => activateBank(name));
-        el.addEventListener('click', () => activateBank(name));
+        el.addEventListener('click', () => openBankModal(name));
     });
 
     if (wrap) wrap.style.display = 'block';
@@ -589,13 +589,212 @@ function renderHumanBankDetail(name) {
             <div class="bank-detail-section">
                 <h6>
                     <span><span class="bds-bank">${escapeHtml(headerName)}</span> · 🏢 주요 매출 기업</span>
-                    <span class="bds-meta">∑ ${totalDeposits.toLocaleString()}원</span>
+                    <span class="bds-meta">∑ ${totalDeposits.toLocaleString()}원 · 클릭 시 상세창</span>
                 </h6>
                 ${topHtml}
             </div>
         </div>
     `;
 }
+
+// 은행 상세 모달 — 클릭 시 표시
+function openBankModal(name) {
+    if (!_humanBankData) return;
+    const modal = document.getElementById('bank-detail-modal');
+    if (!modal) return;
+
+    const { banks, txns, weeks, total } = _humanBankData;
+    const isTotal = name === '__total__';
+    const headerName = isTotal ? '전체 합계' : name;
+    const targetTxns = isTotal ? txns : txns.filter(t => t.bank === name);
+    const currentBal = isTotal ? total : (banks.find(b => b.name === name) || { balance: 0 }).balance;
+
+    const fmt = v => (v >= 0 ? '+' : '') + v.toLocaleString();
+    const cls = v => v > 0 ? 'pos' : (v < 0 ? 'neg' : 'zero');
+    const fmtDate = serial => {
+        const d = new Date((serial - 25569) * 86400 * 1000);
+        return `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    };
+    const fmtFullDate = serial => {
+        const d = new Date((serial - 25569) * 86400 * 1000);
+        const wd = ['일','월','화','수','목','금','토'][d.getDay()];
+        return `${String(d.getFullYear()).slice(2)}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} (${wd})`;
+    };
+
+    // 제목 + 잔액 태그
+    const title = document.getElementById('bank-modal-title');
+    if (title) {
+        const balCls = currentBal === 0 ? 'zero' : (currentBal < 0 ? 'neg' : '');
+        const balColor = balCls === 'neg' ? '#ffcccc' : (balCls === 'zero' ? '#d6eaf8' : 'white');
+        title.innerHTML = `🏦 ${escapeHtml(headerName)} 상세 내역 <span class="bm-bal-tag" style="color:${balColor};">${currentBal.toLocaleString()}원</span>`;
+    }
+
+    // 1. 요약 카드 4개
+    const monthDep = targetTxns.reduce((s, t) => s + t.dep, 0);
+    const monthWd = targetTxns.reduce((s, t) => s + t.wd, 0);
+    const monthNet = monthDep - monthWd;
+    const summaryHtml = `
+        <div class="bm-summary">
+            <div class="bm-sum-card"><div class="bms-label">현재 잔액</div><div class="bms-value">${currentBal.toLocaleString()}원</div></div>
+            <div class="bm-sum-card"><div class="bms-label">월 입금 합계</div><div class="bms-value pos">+${monthDep.toLocaleString()}원</div></div>
+            <div class="bm-sum-card"><div class="bms-label">월 출금 합계</div><div class="bms-value neg">−${monthWd.toLocaleString()}원</div></div>
+            <div class="bm-sum-card"><div class="bms-label">월 순변동 (${targetTxns.length}건)</div><div class="bms-value ${cls(monthNet)}">${monthNet === 0 ? '—' : fmt(monthNet)}원</div></div>
+        </div>
+    `;
+
+    // 2. 주간 변동 추이 (확대판)
+    const weekCells = weeks.map(w => {
+        const net = targetTxns
+            .filter(t => t.serial >= w.startSerial && t.serial <= w.endSerial)
+            .reduce((s, t) => s + t.dep - t.wd, 0);
+        return `<div class="bm-trend-cell">
+            <div class="bmt-w">${w.label}</div>
+            <div class="bmt-r">${w.range}</div>
+            <div class="bmt-v ${cls(net)}">${net === 0 ? '—' : fmt(net)}</div>
+        </div>`;
+    }).join('');
+    const trendMonthCell = `<div class="bm-trend-cell month-total">
+        <div class="bmt-w">월계</div>
+        <div class="bmt-r">합산</div>
+        <div class="bmt-v ${cls(monthNet)}">${monthNet === 0 ? '—' : fmt(monthNet)}</div>
+    </div>`;
+    const monthLabel = weeks.length ? (() => {
+        const d = new Date((weeks[0].startSerial - 25569) * 86400 * 1000);
+        return `${String(d.getFullYear()).slice(2)}-${String(d.getMonth() + 1).padStart(2, '0')}월`;
+    })() : '';
+
+    // 3. 주요 입금/출금 (적요별 상위 5)
+    const topByKind = (kind) => {
+        const by = {};
+        targetTxns.forEach(t => {
+            const amt = kind === 'dep' ? t.dep : t.wd;
+            if (amt <= 0) return;
+            const key = t.desc || '(미기재)';
+            if (!by[key]) by[key] = { sum: 0, count: 0 };
+            by[key].sum += amt;
+            by[key].count++;
+        });
+        const sorted = Object.entries(by).sort((a, b) => b[1].sum - a[1].sum);
+        return { sorted, top: sorted.slice(0, 5), total: sorted.reduce((s, [, v]) => s + v.sum, 0) };
+    };
+    const dep = topByKind('dep');
+    const wd = topByKind('wd');
+    const renderTopCard = (data, kind) => {
+        const label = kind === 'dep' ? '주요 입금처' : '주요 출금 항목';
+        if (data.top.length === 0) {
+            return `<div class="bm-top-card ${kind}">
+                <h6><span>${kind === 'dep' ? '💰' : '💸'} ${label}</span><span class="bmt-sum">∑ 0원</span></h6>
+                <div class="bmt-empty">해당 기간 ${kind === 'dep' ? '입금' : '출금'} 내역 없음</div>
+            </div>`;
+        }
+        const items = data.top.map(([desc, v]) => `
+            <li>
+                <span class="bmt-name" title="${escapeHtml(desc)}">${escapeHtml(desc)}</span>
+                <span class="bmt-amt">${v.sum.toLocaleString()}<span class="bmt-cnt">×${v.count}</span></span>
+            </li>
+        `).join('');
+        return `<div class="bm-top-card ${kind}">
+            <h6><span>${kind === 'dep' ? '💰' : '💸'} ${label} (상위 5)</span><span class="bmt-sum">∑ ${data.total.toLocaleString()}원</span></h6>
+            <ol>${items}</ol>
+        </div>`;
+    };
+
+    // 4. 최근 10일 거래 내역 (가장 최근 거래일 기준 10일 전부터)
+    const allSerials = txns.map(t => t.serial);
+    const refSerial = allSerials.length ? Math.max(...allSerials) : 0;
+    const cutoffSerial = refSerial - 9; // 최근 10일 (오늘 포함)
+
+    // 잔액 흐름 계산: 현재잔액 = 기초잔액 + sum(전체 거래의 net) → 기초잔액 역산
+    const sortedAll = [...targetTxns].sort((a, b) => a.serial - b.serial || 0);
+    const totalNet = sortedAll.reduce((s, t) => s + t.dep - t.wd, 0);
+    const openingBal = currentBal - totalNet;
+    let running = openingBal;
+    const txnsWithRunning = sortedAll.map(t => {
+        running += t.dep - t.wd;
+        return { ...t, running };
+    });
+    // 최근 10일만 필터, 최신 → 과거 순으로 표시
+    const recent = txnsWithRunning.filter(t => t.serial >= cutoffSerial).reverse();
+
+    let ledgerHtml;
+    if (recent.length === 0) {
+        ledgerHtml = `<div class="bm-ledger-empty">최근 10일 내 거래 내역이 없습니다.</div>`;
+    } else {
+        // 일자별로 묶어 day-divider 행 추가
+        const rowsHtml = [];
+        let prevSerial = null;
+        // recent는 최신부터 → 일자 그룹핑도 그대로
+        const dayGroups = {};
+        recent.forEach(t => {
+            if (!dayGroups[t.serial]) dayGroups[t.serial] = [];
+            dayGroups[t.serial].push(t);
+        });
+        const sortedDays = Object.keys(dayGroups).map(Number).sort((a, b) => b - a);
+        sortedDays.forEach(serial => {
+            const items = dayGroups[serial];
+            const dayDep = items.reduce((s, t) => s + t.dep, 0);
+            const dayWd = items.reduce((s, t) => s + t.wd, 0);
+            const dayNet = dayDep - dayWd;
+            const colspan = isTotal ? 5 : 4;
+            rowsHtml.push(`<tr class="day-divider"><td colspan="${colspan}">${fmtFullDate(serial)} <span class="day-net ${cls(dayNet)}">일 순변동: ${dayNet === 0 ? '0' : fmt(dayNet)}원</span></td></tr>`);
+            items.forEach(t => {
+                const depCell = t.dep > 0 ? `<td class="dep">+${t.dep.toLocaleString()}</td>` : `<td class="dep zero-cell">—</td>`;
+                const wdCell = t.wd > 0 ? `<td class="wd">−${t.wd.toLocaleString()}</td>` : `<td class="wd zero-cell">—</td>`;
+                const bankCell = isTotal ? `<td class="bank">${escapeHtml(t.bank)}</td>` : '';
+                rowsHtml.push(`<tr>
+                    <td class="date">${fmtDate(t.serial)}</td>
+                    ${bankCell}
+                    <td class="desc">${escapeHtml(t.desc || '(미기재)')}</td>
+                    ${depCell}
+                    ${wdCell}
+                    <td class="run">${t.running.toLocaleString()}</td>
+                </tr>`);
+            });
+        });
+        const headBank = isTotal ? '<th>은행</th>' : '';
+        ledgerHtml = `<div class="bm-ledger-wrap">
+            <table class="bm-ledger-table">
+                <thead><tr><th>날짜</th>${headBank}<th>적요</th><th>입금</th><th>출금</th><th>잔액</th></tr></thead>
+                <tbody>${rowsHtml.join('')}</tbody>
+            </table>
+        </div>`;
+    }
+
+    const refLabel = refSerial ? `${fmtDate(cutoffSerial)} ~ ${fmtDate(refSerial)}` : '데이터 없음';
+
+    document.getElementById('bank-modal-body').innerHTML = `
+        ${summaryHtml}
+        <div class="bm-section">
+            <div class="bm-section-title"><span>📈 주간 변동 추이</span><span class="bms-meta">${monthLabel}</span></div>
+            <div class="bm-trend">${weekCells}${trendMonthCell}</div>
+        </div>
+        <div class="bm-section">
+            <div class="bm-section-title"><span>💱 주요 입출금 현황</span><span class="bms-meta">월 ${targetTxns.length}건 기준</span></div>
+            <div class="bm-top-grid">${renderTopCard(dep, 'dep')}${renderTopCard(wd, 'wd')}</div>
+        </div>
+        <div class="bm-section">
+            <div class="bm-section-title"><span>📋 최근 10일 입출금 내역</span><span class="bms-meta">${refLabel} · ${recent.length}건</span></div>
+            ${ledgerHtml}
+        </div>
+    `;
+
+    modal.style.display = 'block';
+    document.body.style.overflow = 'hidden';
+}
+
+function closeBankModal() {
+    const modal = document.getElementById('bank-detail-modal');
+    if (modal) modal.style.display = 'none';
+    document.body.style.overflow = '';
+}
+
+// ESC 키로 닫기
+document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') {
+        const modal = document.getElementById('bank-detail-modal');
+        if (modal && modal.style.display === 'block') closeBankModal();
+    }
+});
 
 // 휴먼 분기별 부가세 — f7 '휴먼' 시트의 매출/매입 공급가액을 연·분기로 그룹화하여 직접 계산
 let _humanVATData = null; // { byYear: { 2026: { Q1: {...}, ..., total: {...} }, ... } }
