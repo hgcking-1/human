@@ -4416,6 +4416,21 @@ function openSecureDetail(type) {
     window.open(`editor.html?type=${type}`, '_blank', 'width=1100,height=700');
 }
 
+// 양식 기반 일용직 입력 페이지 — A/B/관리자 모두 접근 가능 (일용직 양식 한정)
+function openInputForm(type) {
+    if (!localStorage.getItem('userSession')) {
+        alert('로그인이 필요합니다.');
+        toggleModal('login-modal');
+        return;
+    }
+    const allowed = ['human_f1', 'human_f2', 'chaeum_f3', 'chaeum_f4', 'chaeum_f5'];
+    if (!allowed.includes(type)) {
+        alert('지원되지 않는 양식 종류입니다.');
+        return;
+    }
+    window.open(`input-form.html?type=${type}`, '_blank', 'width=1280,height=800');
+}
+
 function simulateGlobalSync() {
     const loader = document.getElementById('loading-overlay');
     if (loader) {

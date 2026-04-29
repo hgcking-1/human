@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>일용직 근무 입력 — HUMAN</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css">
+    <script src="security.js"></script>
+    <style>
+        @media print {
+            body * { visibility: hidden !important; }
+            html::before, body::before {
+                content: '🚫 인쇄가 금지된 자료입니다.';
+                visibility: visible !important;
+                position: fixed; inset: 0;
+                display: flex; align-items: center; justify-content: center;
+                background: white; color: #c0392b; font-size: 24px; font-weight: 700;
+                padding: 40px;
+            }
+        }
+        body, body * { -webkit-user-select: none; user-select: none; -webkit-user-drag: none; }
+        input, textarea, select { -webkit-user-select: text !important; user-select: text !important; }
+
+        body { background: #f0f2f5; padding: 1rem; font-family: 'Pretendard', -apple-system, sans-serif; margin: 0; }
+        .if-container { max-width: 1280px; margin: 0 auto; }
+
+        .if-header {
+            display: flex; align-items: center; justify-content: space-between;
+            background: white; padding: 1rem 1.5rem; border-radius: 10px;
+            margin-bottom: 1rem; box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+            flex-wrap: wrap; gap: 12px;
+        }
+        .if-title { display: flex; align-items: center; gap: 12px; }
+        .if-title h2 { margin: 0; font-size: 1.2rem; color: #2c3e50; }
+        .if-user { font-size: 0.8rem; color: #666; padding: 4px 10px; background: #ecf0f1; border-radius: 4px; }
+        .if-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+        .if-btn { padding: 8px 16px; border-radius: 5px; font-size: 0.85rem; font-weight: 600; cursor: pointer; border: 1.5px solid transparent; transition: all 0.15s; }
+        .if-btn-primary { background: #3498db; color: white; border-color: #3498db; }
+        .if-btn-primary:hover { background: #2980b9; border-color: #2980b9; }
+        .if-btn-secondary { background: white; color: #3498db; border-color: #3498db; }
+        .if-btn-secondary:hover { background: #ecf0f1; }
+        .if-btn-success { background: #27ae60; color: white; border-color: #27ae60; }
+        .if-btn-success:hover { background: #1e8449; }
+        .if-btn-warn { background: white; color: #e67e22; border-color: #e67e22; }
+        .if-btn-warn:hover { background: #fef5e7; }
+        .if-btn-danger { background: white; color: #c0392b; border-color: #c0392b; padding: 4px 10px; font-size: 0.7rem; }
+        .if-btn-danger:hover { background: #c0392b; color: white; }
+
+        .if-tabs { display: flex; gap: 4px; margin-bottom: 1rem; flex-wrap: wrap; }
+        .if-tab { padding: 8px 16px; background: white; border: 1.5px solid #ddd; border-radius: 6px; cursor: pointer; font-size: 0.82rem; font-weight: 600; color: #555; transition: all 0.15s; }
+        .if-tab:hover { border-color: #3498db; color: #3498db; }
+        .if-tab.active { background: #3498db; color: white; border-color: #3498db; }
+
+        .if-card { background: white; padding: 1.2rem 1.5rem; border-radius: 10px; margin-bottom: 1rem; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+        .if-card h3 { margin: 0 0 1rem 0; font-size: 1rem; color: #2c3e50; }
+
+        .if-form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 1rem; }
+        .if-field label { display: block; font-size: 0.72rem; font-weight: 700; color: #555; margin-bottom: 4px; }
+        .if-field .req { color: #e74c3c; margin-left: 2px; }
+        .if-field input, .if-field select {
+            width: 100%; padding: 7px 9px; font-size: 0.82rem;
+            border: 1.5px solid #ddd; border-radius: 4px; box-sizing: border-box;
+            font-family: inherit;
+        }
+        .if-field input:focus, .if-field select:focus { border-color: #3498db; outline: none; box-shadow: 0 0 0 3px rgba(52,152,219,0.12); }
+        .if-field input.invalid { border-color: #e74c3c; background: #ffebee; }
+
+        .if-form-actions { display: flex; gap: 8px; justify-content: flex-end; padding-top: 6px; border-top: 1px dashed #eee; margin-top: 8px; }
+
+        .if-stats { display: flex; gap: 14px; padding: 10px 14px; background: #ecf0f1; border-radius: 6px; margin-bottom: 12px; flex-wrap: wrap; font-size: 0.78rem; }
+        .if-stats b { color: #2980b9; font-size: 0.95rem; }
+
+        .if-table-wrap { max-height: 60vh; overflow: auto; border: 1px solid #e0e0e0; border-radius: 6px; }
+        .if-table { width: 100%; border-collapse: collapse; font-size: 0.74rem; }
+        .if-table thead { position: sticky; top: 0; z-index: 5; }
+        .if-table th { background: #34495e; color: white; padding: 8px 10px; font-weight: 600; text-align: left; white-space: nowrap; border: 1px solid #2c3e50; }
+        .if-table td { padding: 5px 10px; border-bottom: 1px solid #eee; vertical-align: middle; white-space: nowrap; }
+        .if-table tr:hover { background: #f8f9fa; }
+        .if-table tr.recent-record { background: linear-gradient(90deg, #fffacd 0%, white 30%); }
+        .if-table tr.recent-record:hover { background: linear-gradient(90deg, #fff59d 0%, #f8f9fa 30%); }
+        .if-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+        .if-table td.editable { background: #fffde7; cursor: text; }
+        .if-table td[contenteditable="true"]:focus { outline: 2px solid #3498db; background: white; }
+
+        .if-empty { padding: 60px 20px; text-align: center; color: #999; font-size: 0.9rem; }
+        .if-empty .icon { font-size: 3rem; opacity: 0.3; margin-bottom: 12px; }
+
+        .if-toast {
+            position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
+            padding: 12px 24px; border-radius: 8px; color: white;
+            font-weight: 600; font-size: 0.9rem; z-index: 9999;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.2); display: none;
+            max-width: 90vw; text-align: center;
+        }
+        .if-toast.success { background: #27ae60; }
+        .if-toast.warn { background: #e67e22; }
+        .if-toast.error { background: #c0392b; }
+        .if-toast.info { background: #2980b9; }
+
+        @media (max-width: 720px) {
+            .if-header { flex-direction: column; align-items: flex-start; }
+            .if-title h2 { font-size: 1rem; }
+            .if-form-grid { grid-template-columns: repeat(2, 1fr); }
+        }
+    </style>
+</head>
+<body>
+    <div class="if-container">
+        <div class="if-header">
+            <div class="if-title">
+                <h2>📝 일용직 근무 매일 입력</h2>
+                <span class="if-user" id="if-user">로그인 확인 중…</span>
+            </div>
+            <div class="if-actions">
+                <button class="if-btn if-btn-success" onclick="downloadXLSX()">📥 엑셀 다운로드</button>
+                <button class="if-btn if-btn-warn" onclick="exportAsCSV()">📄 CSV 다운로드</button>
+                <button class="if-btn if-btn-secondary" onclick="goBack()">← 메인으로</button>
+            </div>
+        </div>
+
+        <div class="if-tabs" id="if-tabs"></div>
+
+        <div class="if-card">
+            <h3 id="if-form-title">➕ 신규 항목 입력</h3>
+            <div class="if-form-grid" id="if-form-grid"></div>
+            <div class="if-form-actions">
+                <button class="if-btn if-btn-secondary" onclick="resetForm()">초기화</button>
+                <button class="if-btn if-btn-primary" onclick="addRecord()" id="if-add-btn">✅ 추가</button>
+            </div>
+        </div>
+
+        <div class="if-card">
+            <h3>📋 등록된 내역 <span style="color:#666; font-weight:400; font-size:0.8rem;">(날짜 최신순)</span></h3>
+            <div class="if-stats" id="if-stats"></div>
+            <div class="if-table-wrap">
+                <table class="if-table" id="if-table">
+                    <thead id="if-thead"></thead>
+                    <tbody id="if-tbody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="if-toast" id="if-toast"></div>
+
+    <!-- 자동완성 datalists는 동적으로 추가됨 -->
+    <div id="if-datalists" style="display:none;"></div>
+
+    <script>
+    'use strict';
+
+    // 양식 정의 — 컬럼 라벨, 타입, 필수 여부, 자동완성 가능 여부
+    const COMMON_FIELDS = [
+        { key: 'date',     label: '날짜',      type: 'date',   required: true,  width: 110, default: () => new Date().toISOString().split('T')[0] },
+        { key: 'vendor',   label: '업체',      type: 'text',   required: true,  width: 140, autocomplete: true },
+        { key: 'site',     label: '현장',      type: 'text',   required: true,  width: 140, autocomplete: true },
+        { key: 'work',     label: '업무',      type: 'text',   required: false, width: 100, autocomplete: true },
+        { key: 'hours',    label: '근무시간',  type: 'text',   required: false, width: 90,  autocomplete: true },
+        { key: 'name',     label: '이름',      type: 'text',   required: true,  width: 90,  autocomplete: true },
+        { key: 'phone',    label: '연락처',    type: 'tel',    required: false, width: 120 },
+        { key: 'jumin',    label: '주민번호',  type: 'text',   required: false, width: 130 },
+        { key: 'bank',     label: '은행',      type: 'text',   required: false, width: 80,  autocomplete: true },
+        { key: 'account',  label: '계좌번호',  type: 'text',   required: false, width: 130 },
+        { key: 'paid',     label: '지급액',    type: 'number', required: true,  width: 110 },
+        { key: 'billed',   label: '청구액',    type: 'number', required: false, width: 110 }
+    ];
+
+    // 양식별 마지막 컬럼만 다름 (지급일 vs 차감)
+    const FORM_TYPES = {
+        'human_f1': {
+            label: '📊 휴먼 · 업체별 청구',
+            fileLabel: '휴먼_업체별청구',
+            fields: [...COMMON_FIELDS, { key: 'cut',     label: '차감',     type: 'text',   required: false, width: 90 }]
+        },
+        'human_f2': {
+            label: '📅 휴먼 · 일자별 지급',
+            fileLabel: '휴먼_일자별지급',
+            fields: [...COMMON_FIELDS, { key: 'payDate', label: '지급일',   type: 'date',   required: false, width: 110 }]
+        },
+        'chaeum_f3': {
+            label: '🏢 채움 · 업체별 청구',
+            fileLabel: '채움_업체별청구',
+            fields: [...COMMON_FIELDS, { key: 'cut',     label: '차감',     type: 'text',   required: false, width: 90 }]
+        },
+        'chaeum_f4': {
+            label: '🌐 채움 · 외국인 청구',
+            fileLabel: '채움_외국인',
+            fields: [...COMMON_FIELDS, { key: 'cut',     label: '차감',     type: 'text',   required: false, width: 90 }]
+        },
+        'chaeum_f5': {
+            label: '📆 채움 · 일자별 지급',
+            fileLabel: '채움_일자별지급',
+            fields: [...COMMON_FIELDS, { key: 'payDate', label: '지급일',   type: 'date',   required: false, width: 110 }]
+        }
+    };
+
+    // 현재 활성 양식 (URL ?type 또는 기본값)
+    function pickInitialType() {
+        const params = new URLSearchParams(location.search);
+        const t = params.get('type');
+        if (t && FORM_TYPES[t]) return t;
+        return 'human_f2';
+    }
+    let currentType = pickInitialType();
+
+    // ─── 인증 가드 ───
+    let currentSession = null;
+    function ensureLogin() {
+        const raw = localStorage.getItem('userSession');
+        if (!raw) {
+            alert('로그인이 필요합니다. 메인 페이지에서 로그인 후 다시 접근하세요.');
+            location.href = 'index.html';
+            return false;
+        }
+        try { currentSession = JSON.parse(raw); } catch (e) { currentSession = null; }
+        if (!currentSession) {
+            alert('세션 정보가 없습니다. 다시 로그인하세요.');
+            location.href = 'index.html';
+            return false;
+        }
+
+        // B등급은 일용직 양식만 접근 가능 (이미 화면 자체가 일용직 전용)
+        const userInfoEl = document.getElementById('if-user');
+        if (userInfoEl) {
+            const grade = currentSession.grade || '?';
+            const isMaster = currentSession.isMaster || currentSession.id === 'admin';
+            userInfoEl.textContent = `${currentSession.name || '사용자'} (${grade}등급${isMaster ? ' · 마스터' : ''})`;
+        }
+        return true;
+    }
+
+    // ─── 토스트 ───
+    let toastTimer = null;
+    function toast(msg, kind = 'info') {
+        const el = document.getElementById('if-toast');
+        if (!el) return;
+        el.className = 'if-toast ' + kind;
+        el.textContent = msg;
+        el.style.display = 'block';
+        if (toastTimer) clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => { el.style.display = 'none'; }, 2800);
+    }
+
+    // ─── 저장소 (localStorage 기반) ───
+    function storageKey(type) { return 'daily_records_' + type; }
+    function loadRecords(type) {
+        try {
+            const raw = localStorage.getItem(storageKey(type));
+            const arr = raw ? JSON.parse(raw) : [];
+            return Array.isArray(arr) ? arr : [];
+        } catch (e) { return []; }
+    }
+    function saveRecords(type, records) {
+        localStorage.setItem(storageKey(type), JSON.stringify(records));
+    }
+
+    // ─── 탭 렌더 ───
+    function renderTabs() {
+        const tabs = document.getElementById('if-tabs');
+        if (!tabs) return;
+        tabs.innerHTML = Object.entries(FORM_TYPES).map(([k, v]) => {
+            const cls = k === currentType ? 'if-tab active' : 'if-tab';
+            const count = loadRecords(k).length;
+            return `<button class="${cls}" onclick="switchType('${k}')">${v.label} <span style="opacity:0.7;">(${count})</span></button>`;
+        }).join('');
+    }
+    function switchType(t) {
+        if (!FORM_TYPES[t]) return;
+        currentType = t;
+        const url = new URL(location.href);
+        url.searchParams.set('type', t);
+        history.replaceState(null, '', url.toString());
+        renderAll();
+    }
+
+    // ─── 폼 빌드 ───
+    function renderForm() {
+        const grid = document.getElementById('if-form-grid');
+        const title = document.getElementById('if-form-title');
+        const fields = FORM_TYPES[currentType].fields;
+        if (title) title.textContent = `➕ 신규 항목 입력 — ${FORM_TYPES[currentType].label}`;
+        grid.innerHTML = fields.map(f => {
+            const def = (typeof f.default === 'function') ? f.default() : '';
+            const req = f.required ? '<span class="req">*</span>' : '';
+            const list = f.autocomplete ? ` list="dl-${f.key}"` : '';
+            const inputmode = f.type === 'number' ? ' inputmode="numeric"' : '';
+            return `
+                <div class="if-field">
+                    <label for="ff-${f.key}">${f.label} ${req}</label>
+                    <input id="ff-${f.key}" type="${f.type}" value="${def}"${list}${inputmode} data-key="${f.key}" />
+                </div>`;
+        }).join('');
+        rebuildDatalists();
+    }
+    function rebuildDatalists() {
+        const dl = document.getElementById('if-datalists');
+        if (!dl) return;
+        const fields = FORM_TYPES[currentType].fields.filter(f => f.autocomplete);
+        const records = loadRecords(currentType);
+        dl.innerHTML = fields.map(f => {
+            const set = new Set();
+            records.forEach(r => { const v = (r[f.key] || '').toString().trim(); if (v) set.add(v); });
+            const opts = Array.from(set).sort((a, b) => a.localeCompare(b, 'ko')).slice(0, 200);
+            return `<datalist id="dl-${f.key}">${opts.map(v => `<option value="${escapeAttr(v)}">`).join('')}</datalist>`;
+        }).join('');
+    }
+
+    // ─── 입력 검증 ───
+    function validateForm() {
+        const fields = FORM_TYPES[currentType].fields;
+        const result = {};
+        const errors = [];
+        for (const f of fields) {
+            const el = document.getElementById('ff-' + f.key);
+            if (!el) continue;
+            const v = (el.value || '').toString().trim();
+            el.classList.remove('invalid');
+
+            if (f.required && !v) {
+                errors.push(`'${f.label}' 필수 입력`);
+                el.classList.add('invalid');
+                continue;
+            }
+            if (f.type === 'number' && v) {
+                const cleaned = v.replace(/[,\s원]/g, '');
+                if (!/^-?\d+(\.\d+)?$/.test(cleaned)) {
+                    errors.push(`'${f.label}'은 숫자여야 합니다`);
+                    el.classList.add('invalid');
+                    continue;
+                }
+                result[f.key] = parseFloat(cleaned);
+                continue;
+            }
+            if (f.key === 'phone' && v && !/^[\d\-\s\+\(\)]+$/.test(v)) {
+                errors.push(`'${f.label}' 형식 오류`);
+                el.classList.add('invalid');
+                continue;
+            }
+            if (f.key === 'jumin' && v) {
+                const d = v.replace(/[^0-9]/g, '');
+                if (d.length !== 6 && d.length !== 7 && d.length !== 13) {
+                    errors.push(`'${f.label}' 6 또는 13자리`);
+                    el.classList.add('invalid');
+                    continue;
+                }
+            }
+            result[f.key] = v;
+        }
+        return { ok: errors.length === 0, errors, data: result };
+    }
+
+    function resetForm() {
+        renderForm();
+        toast('폼이 초기화되었습니다', 'info');
+    }
+
+    function addRecord() {
+        const v = validateForm();
+        if (!v.ok) {
+            toast('⚠️ ' + v.errors.slice(0, 2).join(' / '), 'error');
+            return;
+        }
+        const records = loadRecords(currentType);
+        const newRec = {
+            id: 'r_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8),
+            ...v.data,
+            createdAt: new Date().toISOString(),
+            createdBy: (currentSession && currentSession.name) || 'unknown'
+        };
+        records.push(newRec);
+        saveRecords(currentType, records);
+        toast('✅ 추가됨 — ' + (newRec.name || newRec.vendor || '신규 항목'), 'success');
+        renderForm(); // 빈 폼으로 초기화
+        renderTable();
+        renderTabs();  // 카운트 갱신
+    }
+
+    function deleteRecord(id) {
+        if (!confirm('이 내역을 삭제하시겠습니까?')) return;
+        const records = loadRecords(currentType).filter(r => r.id !== id);
+        saveRecords(currentType, records);
+        toast('🗑️ 삭제됨', 'warn');
+        renderTable();
+        renderTabs();
+    }
+
+    function startEditRecord(id) {
+        const records = loadRecords(currentType);
+        const rec = records.find(r => r.id === id);
+        if (!rec) return;
+        // 폼에 채우기
+        FORM_TYPES[currentType].fields.forEach(f => {
+            const el = document.getElementById('ff-' + f.key);
+            if (el && rec[f.key] !== undefined && rec[f.key] !== null) {
+                el.value = rec[f.key];
+            }
+        });
+        // 모드 전환
+        const btn = document.getElementById('if-add-btn');
+        if (btn) {
+            btn.textContent = '💾 수정 저장';
+            btn.onclick = function () { saveEdit(id); };
+        }
+        toast('수정 모드 — 폼에서 변경 후 저장', 'info');
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+    function saveEdit(id) {
+        const v = validateForm();
+        if (!v.ok) {
+            toast('⚠️ ' + v.errors.slice(0, 2).join(' / '), 'error');
+            return;
+        }
+        const records = loadRecords(currentType);
+        const idx = records.findIndex(r => r.id === id);
+        if (idx === -1) { toast('항목을 찾을 수 없음', 'error'); return; }
+        records[idx] = { ...records[idx], ...v.data, updatedAt: new Date().toISOString(), updatedBy: (currentSession && currentSession.name) || 'unknown' };
+        saveRecords(currentType, records);
+        toast('💾 수정 완료', 'success');
+        // 추가 모드로 복귀
+        const btn = document.getElementById('if-add-btn');
+        if (btn) {
+            btn.textContent = '✅ 추가';
+            btn.onclick = addRecord;
+        }
+        renderForm();
+        renderTable();
+    }
+
+    // ─── 테이블 렌더 (날짜 desc) ───
+    function renderTable() {
+        const thead = document.getElementById('if-thead');
+        const tbody = document.getElementById('if-tbody');
+        const stats = document.getElementById('if-stats');
+        const fields = FORM_TYPES[currentType].fields;
+        const records = loadRecords(currentType);
+
+        // 날짜 desc, 동일 날짜는 createdAt desc
+        records.sort((a, b) => {
+            const ad = (a.date || '').toString();
+            const bd = (b.date || '').toString();
+            if (ad !== bd) return bd.localeCompare(ad);
+            return (b.createdAt || '').localeCompare(a.createdAt || '');
+        });
+
+        // 헤더
+        thead.innerHTML = '<tr>'
+            + fields.map(f => `<th style="min-width:${f.width || 100}px;">${f.label}</th>`).join('')
+            + '<th style="min-width:80px;">관리</th>'
+            + '</tr>';
+
+        // 통계
+        const today = new Date().toISOString().split('T')[0];
+        const todayCount = records.filter(r => r.date === today).length;
+        const totalPaid = records.reduce((s, r) => s + (parseFloat(r.paid) || 0), 0);
+        const totalBilled = records.reduce((s, r) => s + (parseFloat(r.billed) || 0), 0);
+        stats.innerHTML = `
+            <div>📊 총 항목 수: <b>${records.length.toLocaleString()}건</b></div>
+            <div>📅 오늘 입력: <b>${todayCount.toLocaleString()}건</b></div>
+            <div>💵 지급액 합계: <b>${totalPaid.toLocaleString()}원</b></div>
+            <div>💰 청구액 합계: <b>${totalBilled.toLocaleString()}원</b></div>
+        `;
+
+        // 행
+        if (records.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="${fields.length + 1}"><div class="if-empty"><div class="icon">📭</div>아직 입력된 내역이 없습니다.<br>위 폼에서 추가해 보세요.</div></td></tr>`;
+            return;
+        }
+
+        const recentDate = records[0] && records[0].date;
+        tbody.innerHTML = records.map(r => {
+            const trCls = (r.date === recentDate) ? 'recent-record' : '';
+            const cells = fields.map(f => {
+                let v = r[f.key];
+                if (v === undefined || v === null) v = '';
+                if (f.type === 'number' && v !== '') v = (parseFloat(v) || 0).toLocaleString();
+                const cls = (f.type === 'number') ? ' class="num"' : '';
+                return `<td${cls}>${escapeHtml(v)}</td>`;
+            }).join('');
+            return `<tr class="${trCls}">${cells}<td style="text-align:center;">
+                <button class="if-btn if-btn-secondary" style="padding:3px 8px;font-size:0.7rem;" onclick="startEditRecord('${r.id}')">수정</button>
+                <button class="if-btn if-btn-danger" onclick="deleteRecord('${r.id}')">삭제</button>
+            </td></tr>`;
+        }).join('');
+    }
+
+    function renderAll() {
+        renderTabs();
+        renderForm();
+        renderTable();
+    }
+
+    // ─── 다운로드 (xlsx / csv) ───
+    function buildExportRows() {
+        const fields = FORM_TYPES[currentType].fields;
+        const records = loadRecords(currentType).slice().sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+        const headers = fields.map(f => f.label);
+        const rows = records.map(r => fields.map(f => {
+            let v = r[f.key];
+            if (v === undefined || v === null) return '';
+            if (f.type === 'number') return parseFloat(v) || 0;
+            return v;
+        }));
+        return { headers, rows, fields };
+    }
+
+    function downloadXLSX() {
+        if (typeof XLSX === 'undefined') {
+            toast('엑셀 라이브러리 로딩 실패', 'error');
+            return;
+        }
+        const { headers, rows } = buildExportRows();
+        if (rows.length === 0) {
+            toast('내보낼 항목이 없습니다', 'warn');
+            return;
+        }
+        const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+        // 컬럼 너비 자동 추정
+        const colWidths = headers.map((h, i) => {
+            const maxLen = Math.max(
+                h.length,
+                ...rows.slice(0, 200).map(r => (r[i] === null || r[i] === undefined ? '' : r[i].toString()).length)
+            );
+            return { wch: Math.min(Math.max(maxLen + 2, 8), 30) };
+        });
+        ws['!cols'] = colWidths;
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, '입력내역');
+        const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+        const fileName = `${FORM_TYPES[currentType].fileLabel}_${today}.xlsx`;
+        XLSX.writeFile(wb, fileName);
+        toast(`📥 ${fileName} 다운로드 시작`, 'success');
+    }
+
+    function exportAsCSV() {
+        const { headers, rows } = buildExportRows();
+        if (rows.length === 0) {
+            toast('내보낼 항목이 없습니다', 'warn');
+            return;
+        }
+        const escCSV = (v) => {
+            const s = (v === null || v === undefined) ? '' : v.toString();
+            if (/[",\n]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+            return s;
+        };
+        const csv = [headers, ...rows].map(r => r.map(escCSV).join(',')).join('\n');
+        // Excel UTF-8 BOM
+        const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+        a.href = url;
+        a.download = `${FORM_TYPES[currentType].fileLabel}_${today}.csv`;
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        toast('📄 CSV 다운로드 시작', 'success');
+    }
+
+    // ─── 공통 유틸 ───
+    function escapeHtml(s) {
+        return (s === null || s === undefined ? '' : s.toString())
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+    function escapeAttr(s) { return escapeHtml(s); }
+
+    function goBack() {
+        if (window.opener && !window.opener.closed) {
+            window.close();
+        } else {
+            location.href = 'index.html';
+        }
+    }
+
+    // ─── 부팅 ───
+    document.addEventListener('DOMContentLoaded', function () {
+        if (!ensureLogin()) return;
+        renderAll();
+    });
+    </script>
+</body>
+</html>

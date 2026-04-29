@@ -107,30 +107,30 @@
                     <br><span style="color: #c0392b; font-size: 0.8rem;">⚠️ 입력 시 자동완성/형식 검증이 작동하며, 잘못된 값에는 경고가 표시됩니다.</span>
                 </p>
                 <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1rem;">
-                    <div class="glass-card b-form-card" style="border-top: 5px solid var(--primary-color); cursor: pointer; padding: 1.2rem;" onclick="openSecureDetail('human_f2')">
+                    <div class="glass-card b-form-card" style="border-top: 5px solid var(--primary-color); cursor: pointer; padding: 1.2rem;" onclick="openInputForm('human_f2')">
                         <h3 style="font-size: 1rem;">📅 휴먼엠에스 · 일자별 지급</h3>
-                        <p class="stat-label" style="margin: 0.5rem 0;">매일 일용직 근무 내역</p>
-                        <button class="btn-sm">입력 / 수정</button>
+                        <p class="stat-label" style="margin: 0.5rem 0;">매일 일용직 근무 양식 입력</p>
+                        <button class="btn-sm">📝 양식 입력</button>
                     </div>
-                    <div class="glass-card b-form-card" style="border-top: 5px solid #9b59b6; cursor: pointer; padding: 1.2rem;" onclick="openSecureDetail('human_f1')">
+                    <div class="glass-card b-form-card" style="border-top: 5px solid #9b59b6; cursor: pointer; padding: 1.2rem;" onclick="openInputForm('human_f1')">
                         <h3 style="font-size: 1rem;">📊 휴먼엠에스 · 업체별 청구</h3>
-                        <p class="stat-label" style="margin: 0.5rem 0;">청구용 일용직 근무</p>
-                        <button class="btn-sm">입력 / 수정</button>
+                        <p class="stat-label" style="margin: 0.5rem 0;">청구용 일용직 양식 입력</p>
+                        <button class="btn-sm">📝 양식 입력</button>
                     </div>
-                    <div class="glass-card b-form-card" style="border-top: 5px solid #16a085; cursor: pointer; padding: 1.2rem;" onclick="openSecureDetail('chaeum_f5')">
+                    <div class="glass-card b-form-card" style="border-top: 5px solid #16a085; cursor: pointer; padding: 1.2rem;" onclick="openInputForm('chaeum_f5')">
                         <h3 style="font-size: 1rem;">📆 채움서비스 · 일자별 지급</h3>
-                        <p class="stat-label" style="margin: 0.5rem 0;">매일 일용직 근무 내역</p>
-                        <button class="btn-sm">입력 / 수정</button>
+                        <p class="stat-label" style="margin: 0.5rem 0;">매일 일용직 근무 양식 입력</p>
+                        <button class="btn-sm">📝 양식 입력</button>
                     </div>
-                    <div class="glass-card b-form-card" style="border-top: 5px solid #2980b9; cursor: pointer; padding: 1.2rem;" onclick="openSecureDetail('chaeum_f3')">
+                    <div class="glass-card b-form-card" style="border-top: 5px solid #2980b9; cursor: pointer; padding: 1.2rem;" onclick="openInputForm('chaeum_f3')">
                         <h3 style="font-size: 1rem;">🏢 채움서비스 · 업체별 청구</h3>
-                        <p class="stat-label" style="margin: 0.5rem 0;">청구용 일용직 근무</p>
-                        <button class="btn-sm">입력 / 수정</button>
+                        <p class="stat-label" style="margin: 0.5rem 0;">청구용 일용직 양식 입력</p>
+                        <button class="btn-sm">📝 양식 입력</button>
                     </div>
-                    <div class="glass-card b-form-card" style="border-top: 5px solid #e67e22; cursor: pointer; padding: 1.2rem;" onclick="openSecureDetail('chaeum_f4')">
+                    <div class="glass-card b-form-card" style="border-top: 5px solid #e67e22; cursor: pointer; padding: 1.2rem;" onclick="openInputForm('chaeum_f4')">
                         <h3 style="font-size: 1rem;">🌐 채움서비스 · 외국인 청구</h3>
-                        <p class="stat-label" style="margin: 0.5rem 0;">외국인 일용직 근무</p>
-                        <button class="btn-sm">입력 / 수정</button>
+                        <p class="stat-label" style="margin: 0.5rem 0;">외국인 일용직 양식 입력</p>
+                        <button class="btn-sm">📝 양식 입력</button>
                     </div>
                 </div>
                 <p style="margin-top: 1.5rem; font-size: 0.75rem; color: #888; text-align: center;">
@@ -362,6 +362,10 @@
                         <div class="glass-card dashboard-card" id="h-card-daily-worker" style="grid-column: 1 / -1; border-top: 5px solid #16a085; text-align: left;">
                             <h3 style="text-align:center;">👷 일용직 근무 내역 (휴먼) — 매일 업데이트</h3>
                             <div class="stat-value masked-data" id="h-val-daily-worker" style="color: #16a085; font-size: 1.3rem; text-align:center; margin-bottom: 12px;">●●●,●●●원</div>
+                            <div style="text-align:center; margin-bottom: 14px; display: flex; gap: 8px; justify-content: center; flex-wrap: wrap;">
+                                <button class="btn-sm" onclick="openInputForm('human_f2')" style="background:#3498db; color:white; border-color:#3498db; padding: 6px 14px; font-weight:600;">📝 일자별 양식 입력</button>
+                                <button class="btn-sm" onclick="openInputForm('human_f1')" style="background:#9b59b6; color:white; border-color:#9b59b6; padding: 6px 14px; font-weight:600;">📊 업체별 양식 입력</button>
+                            </div>
                             <div class="form-tile-grid" id="h-form-grid"></div>
                         </div>
                     </div>
@@ -602,6 +606,11 @@
                         <div class="glass-card dashboard-card" id="c-card-daily-worker" style="grid-column: 1 / -1; border-top: 5px solid #16a085; text-align: left;">
                             <h3 style="text-align:center;">👷 일용직 근무 내역 (채움서비스) — 매일 업데이트</h3>
                             <div class="stat-value masked-data" id="c-val-daily-worker" style="color: #16a085; font-size: 1.3rem; text-align:center; margin-bottom: 12px;">●●●,●●●원</div>
+                            <div style="text-align:center; margin-bottom: 14px; display: flex; gap: 8px; justify-content: center; flex-wrap: wrap;">
+                                <button class="btn-sm" onclick="openInputForm('chaeum_f5')" style="background:#16a085; color:white; border-color:#16a085; padding: 6px 14px; font-weight:600;">📆 일자별 양식 입력</button>
+                                <button class="btn-sm" onclick="openInputForm('chaeum_f3')" style="background:#2980b9; color:white; border-color:#2980b9; padding: 6px 14px; font-weight:600;">🏢 업체별 양식 입력</button>
+                                <button class="btn-sm" onclick="openInputForm('chaeum_f4')" style="background:#e67e22; color:white; border-color:#e67e22; padding: 6px 14px; font-weight:600;">🌐 외국인 양식 입력</button>
+                            </div>
                             <div class="form-tile-grid" id="c-form-grid"></div>
                         </div>
                     </div>
