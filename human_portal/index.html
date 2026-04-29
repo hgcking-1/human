@@ -98,6 +98,47 @@
             </nav>
         </header>
 
+        <!-- B등급 전용 일용직 입력 패널 (Hidden by default) -->
+        <div id="b-grade-panel" class="container" style="display:none; margin-top: 2rem;">
+            <div class="glass-card" style="padding: 2rem;">
+                <h3 style="margin-bottom: 0.5rem;">📝 일용직 근무 매일 입력</h3>
+                <p style="color: #666; margin-bottom: 1.5rem; font-size: 0.9rem;">
+                    아래 양식을 클릭하여 오늘의 일용직 근무 내역을 입력하거나 기존 내역을 수정하세요.
+                    <br><span style="color: #c0392b; font-size: 0.8rem;">⚠️ 입력 시 자동완성/형식 검증이 작동하며, 잘못된 값에는 경고가 표시됩니다.</span>
+                </p>
+                <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1rem;">
+                    <div class="glass-card b-form-card" style="border-top: 5px solid var(--primary-color); cursor: pointer; padding: 1.2rem;" onclick="openSecureDetail('human_f2')">
+                        <h3 style="font-size: 1rem;">📅 휴먼엠에스 · 일자별 지급</h3>
+                        <p class="stat-label" style="margin: 0.5rem 0;">매일 일용직 근무 내역</p>
+                        <button class="btn-sm">입력 / 수정</button>
+                    </div>
+                    <div class="glass-card b-form-card" style="border-top: 5px solid #9b59b6; cursor: pointer; padding: 1.2rem;" onclick="openSecureDetail('human_f1')">
+                        <h3 style="font-size: 1rem;">📊 휴먼엠에스 · 업체별 청구</h3>
+                        <p class="stat-label" style="margin: 0.5rem 0;">청구용 일용직 근무</p>
+                        <button class="btn-sm">입력 / 수정</button>
+                    </div>
+                    <div class="glass-card b-form-card" style="border-top: 5px solid #16a085; cursor: pointer; padding: 1.2rem;" onclick="openSecureDetail('chaeum_f5')">
+                        <h3 style="font-size: 1rem;">📆 채움서비스 · 일자별 지급</h3>
+                        <p class="stat-label" style="margin: 0.5rem 0;">매일 일용직 근무 내역</p>
+                        <button class="btn-sm">입력 / 수정</button>
+                    </div>
+                    <div class="glass-card b-form-card" style="border-top: 5px solid #2980b9; cursor: pointer; padding: 1.2rem;" onclick="openSecureDetail('chaeum_f3')">
+                        <h3 style="font-size: 1rem;">🏢 채움서비스 · 업체별 청구</h3>
+                        <p class="stat-label" style="margin: 0.5rem 0;">청구용 일용직 근무</p>
+                        <button class="btn-sm">입력 / 수정</button>
+                    </div>
+                    <div class="glass-card b-form-card" style="border-top: 5px solid #e67e22; cursor: pointer; padding: 1.2rem;" onclick="openSecureDetail('chaeum_f4')">
+                        <h3 style="font-size: 1rem;">🌐 채움서비스 · 외국인 청구</h3>
+                        <p class="stat-label" style="margin: 0.5rem 0;">외국인 일용직 근무</p>
+                        <button class="btn-sm">입력 / 수정</button>
+                    </div>
+                </div>
+                <p style="margin-top: 1.5rem; font-size: 0.75rem; color: #888; text-align: center;">
+                    ※ B등급은 일용직 입력 양식에만 접근 가능하며, 금전출납·재무 자료는 열람할 수 없습니다.
+                </p>
+            </div>
+        </div>
+
         <!-- Admin Approval Section (Hidden by default) -->
         <div id="admin-panel" class="container" style="display:none; margin-top: 2rem;">
             <div class="glass-card">

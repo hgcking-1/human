@@ -2317,14 +2317,30 @@ function applyPermissions(grade, name) {
     ];
 
     if (grade === 'B') {
-        gradeAOnlyIds.forEach(id => {
-            const el = document.getElementById(id);
-            if (el) el.style.display = 'none';
-        });
+        // B등급: 모든 dashboard 카드/대시보드 영역 숨김 → B등급 전용 패널만 노출
+        document.querySelectorAll('.dashboard-card').forEach(el => { el.style.display = 'none'; });
+        document.querySelectorAll('.hero').forEach(el => { el.style.display = 'none'; });
+        const cf = document.querySelector('.container-fluid');
+        if (cf) cf.style.display = 'none';
+        const syncWrap = document.querySelector('button[onclick*="simulateGlobalSync"]');
+        if (syncWrap && syncWrap.parentElement) syncWrap.parentElement.style.display = 'none';
+        const auw = document.getElementById('active-users-widget');
+        if (auw) auw.style.display = 'none';
+        const bPanel = document.getElementById('b-grade-panel');
+        if (bPanel) bPanel.style.display = 'block';
     } else {
+        // A등급/관리자: 모두 노출
+        document.querySelectorAll('.dashboard-card').forEach(el => { el.style.display = ''; });
+        document.querySelectorAll('.hero').forEach(el => { el.style.display = ''; });
+        const cf = document.querySelector('.container-fluid');
+        if (cf) cf.style.display = '';
+        const syncWrap = document.querySelector('button[onclick*="simulateGlobalSync"]');
+        if (syncWrap && syncWrap.parentElement) syncWrap.parentElement.style.display = '';
+        const bPanel = document.getElementById('b-grade-panel');
+        if (bPanel) bPanel.style.display = 'none';
         gradeAOnlyIds.forEach(id => {
             const el = document.getElementById(id);
-            if (el) el.style.display = 'block';
+            if (el) el.style.display = '';
         });
     }
 }

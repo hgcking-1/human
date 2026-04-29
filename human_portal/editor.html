@@ -459,9 +459,23 @@
                 return;
             }
             currentUser = session;
-            if (session.id === 'admin' || session.isMaster) {
-                document.getElementById('master-add-row').style.display = 'block';
+
+            // B등급 권한 체크: 일용직 양식(f1~f5)만 허용, 금전출납(f6, f7) 및 그 외 모두 차단
+            const isAdmin = session.id === 'admin' || session.isMaster;
+            const isBGrade = session.grade === 'B' && !session.isMaster;
+            if (isBGrade) {
+                const allowedTypes = /_(f1|f2|f3|f4|f5)$/;
+                if (!allowedTypes.test(type)) {
+                    alert('🚫 해당 자료에 접근할 권한이 없습니다.\n\nB등급 직원은 일용직 입력 양식(일자별·업체별)에만 접근할 수 있습니다.');
+                    window.close();
+                    return;
+                }
             }
+
+            // 행 추가는 관리자/A등급은 항상, B등급은 일용직 양식에서만 허용
+            const masterAddRow = document.getElementById('master-add-row');
+            if (masterAddRow) masterAddRow.style.display = 'block';
+
             loadData();
 
             // 셀 뷰어: 셀에 포커스/클릭/입력하면 상단에 전체 내용 + 함수식 표시
@@ -1428,6 +1442,382 @@
             alert('데이터가 영구 저장되었습니다.');
             location.reload();
         }
+    </script>
+
+    <!-- 자동완성 + 입력 검증 + 수식 셀 시각화 + 기본 수식 재계산 -->
+    <script>
+    (function () {
+        'use strict';
+
+        // ─────── 컬럼 타입 추론 ───────
+        const NUM_KW = ['단가','일수','금액','지급액','청구액','노무비','식대','합계','공급가액','세액','매출','매입','잔액','입금액','출금액','수량','인원','총액','차감','추가금액','지출'];
+        const PHONE_KW = ['전화번호','연락처','휴대폰'];
+        const RRN_KW = ['주민번호'];
+        const ACC_KW = ['계좌번호'];
+        const DATE_KW = ['날짜','일자','작성일자','입금일','출금일','지급일','계산서발행일','근무일자'];
+
+        function getColumnHeader(colIdx) {
+            const ths = document.querySelectorAll('thead tr.real-header th');
+            const all = ths.length ? ths : document.querySelectorAll('thead th');
+            const th = all[colIdx];
+            return th ? (th.textContent || '').trim() : '';
+        }
+        function inferColumnType(colIdx) {
+            const h = getColumnHeader(colIdx);
+            if (!h) return 'text';
+            if (NUM_KW.some(k => h.includes(k))) return 'number';
+            if (PHONE_KW.some(k => h.includes(k))) return 'phone';
+            if (RRN_KW.some(k => h.includes(k))) return 'rrn';
+            if (ACC_KW.some(k => h.includes(k))) return 'account';
+            if (DATE_KW.some(k => h.includes(k))) return 'date';
+            return 'text';
+        }
+
+        // ─────── 토스트 ───────
+        let toastTimer = null;
+        function showToast(msg, kind) {
+            let toast = document.getElementById('__editor_toast');
+            if (!toast) {
+                toast = document.createElement('div');
+                toast.id = '__editor_toast';
+                toast.style.cssText = 'position:fixed;top:80px;left:50%;transform:translateX(-50%);background:#c0392b;color:white;padding:12px 24px;border-radius:8px;font-weight:700;font-size:0.9rem;box-shadow:0 8px 24px rgba(192,57,43,0.4);z-index:99999;display:none;pointer-events:none;max-width:520px;text-align:center;line-height:1.5;';
+                document.body.appendChild(toast);
+            }
+            toast.style.background = kind === 'success' ? '#27ae60' : (kind === 'info' ? '#2980b9' : '#c0392b');
+            toast.textContent = msg;
+            toast.style.display = 'block';
+            if (toastTimer) clearTimeout(toastTimer);
+            toastTimer = setTimeout(function () { toast.style.display = 'none'; }, 2500);
+        }
+        window.__editorToast = showToast;
+
+        // ─────── 입력 검증 ───────
+        function validateCellValue(value, colType) {
+            const v = (value || '').toString().trim();
+            if (v === '') return { ok: true };
+            if (colType === 'number') {
+                if (/[가-힣a-zA-Z]/.test(v.replace(/원/g, ''))) return { ok: false, msg: '숫자만 입력 가능합니다.' };
+                if (!/^-?[\d,\.\s원]+$/.test(v)) return { ok: false, msg: '숫자 형식 오류 (예: 50000, 50,000)' };
+            }
+            if (colType === 'phone') {
+                if (!/^[\d\-\s\+\(\)]+$/.test(v)) return { ok: false, msg: '전화번호는 숫자와 -만 가능' };
+            }
+            if (colType === 'rrn') {
+                const d = v.replace(/[^0-9]/g, '');
+                if (d.length > 0 && d.length !== 6 && d.length !== 7 && d.length !== 13) {
+                    return { ok: false, msg: '주민번호 형식 오류 (앞 6자리 또는 13자리)' };
+                }
+            }
+            if (colType === 'account') {
+                if (!/^[\d\-\s]+$/.test(v)) return { ok: false, msg: '계좌번호는 숫자와 -만 가능' };
+            }
+            if (colType === 'date') {
+                const ok = /^(\d{4}[-\.\/]\d{1,2}[-\.\/]\d{1,2})$/.test(v) ||
+                           /^(\d{1,2}[-\.\/]\d{1,2})$/.test(v) ||
+                           /월\s*\d+/.test(v) ||
+                           /^\d{4,5}$/.test(v) ||
+                           /^\d{1,2}$/.test(v);
+                if (!ok) return { ok: false, msg: '날짜 형식 오류 (예: 2026-04-29 또는 4-29)' };
+            }
+            return { ok: true };
+        }
+        function markInvalid(td, msg) {
+            td.style.boxShadow = '0 0 0 2px #e74c3c inset';
+            td.style.background = '#ffebee';
+            td.dataset.invalid = '1';
+            td.dataset.invalidMsg = msg || '입력 형식 오류';
+        }
+        function clearInvalid(td) {
+            td.style.boxShadow = '';
+            // 빈 셀이 아닐 때만 background 복원 (CSS 기본값 유지)
+            td.style.background = '';
+            delete td.dataset.invalid;
+            delete td.dataset.invalidMsg;
+        }
+
+        // ─────── 자동완성 박스 ───────
+        const acBox = document.createElement('div');
+        acBox.id = '__autocomplete_box';
+        acBox.style.cssText = 'position:absolute;background:white;border:1.5px solid #3498db;border-radius:4px;box-shadow:0 6px 18px rgba(52,152,219,0.25);max-height:220px;overflow-y:auto;z-index:99998;display:none;font-size:0.78rem;min-width:160px;';
+        document.body.appendChild(acBox);
+
+        let acList = [];
+        let acIdx = -1;
+        let activeCell = null;
+
+        function collectColumnValues(colIdx) {
+            const tds = document.querySelectorAll('tbody td[data-col="' + colIdx + '"][contenteditable="true"]');
+            const set = new Set();
+            tds.forEach(td => {
+                const t = (td.textContent || '').trim();
+                if (t && t.length < 80) set.add(t);
+            });
+            return Array.from(set).sort(function (a, b) {
+                return a.localeCompare(b, 'ko');
+            });
+        }
+        function escHtml(s) {
+            return (s || '').toString()
+                .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        }
+        function showSuggestions(td, query) {
+            const colIdx = parseInt(td.dataset.col);
+            if (isNaN(colIdx)) return;
+            const all = collectColumnValues(colIdx);
+            const q = (query || '').toLowerCase().trim();
+            let filtered = all.filter(v => v.toLowerCase() !== q);
+            if (q) filtered = filtered.filter(v => v.toLowerCase().includes(q));
+            filtered = filtered.slice(0, 10);
+            if (filtered.length === 0) {
+                acBox.style.display = 'none';
+                return;
+            }
+            acList = filtered;
+            acIdx = -1;
+            acBox.innerHTML = filtered.map(function (v, i) {
+                return '<div class="ac-item" data-idx="' + i + '" style="padding:6px 12px;cursor:pointer;border-bottom:1px solid #f0f0f0;white-space:nowrap;">' + escHtml(v) + '</div>';
+            }).join('');
+            const rect = td.getBoundingClientRect();
+            acBox.style.top = (window.scrollY + rect.bottom + 2) + 'px';
+            acBox.style.left = (window.scrollX + rect.left) + 'px';
+            acBox.style.minWidth = Math.max(rect.width, 160) + 'px';
+            acBox.style.display = 'block';
+        }
+        function hideSuggestions() {
+            acBox.style.display = 'none';
+            acIdx = -1;
+            acList = [];
+        }
+        function applySuggestion(td, value) {
+            if (!td) return;
+            td.textContent = value;
+            const colType = inferColumnType(parseInt(td.dataset.col));
+            const r = validateCellValue(value, colType);
+            if (r.ok) clearInvalid(td); else markInvalid(td, r.msg);
+            hideSuggestions();
+            // 커서를 셀 끝으로
+            try {
+                const range = document.createRange();
+                range.selectNodeContents(td);
+                range.collapse(false);
+                const sel = window.getSelection();
+                sel.removeAllRanges();
+                sel.addRange(range);
+            } catch (e) { }
+        }
+        function highlightItem() {
+            acBox.querySelectorAll('.ac-item').forEach(function (el, i) {
+                el.style.background = i === acIdx ? '#3498db' : '';
+                el.style.color = i === acIdx ? 'white' : '';
+            });
+        }
+        acBox.addEventListener('mousedown', function (e) {
+            const item = e.target.closest('.ac-item');
+            if (item && activeCell) {
+                e.preventDefault();
+                const idx = parseInt(item.dataset.idx);
+                applySuggestion(activeCell, acList[idx]);
+            }
+        });
+
+        // ─────── 셀 편집 가능성 판정 ───────
+        function isEditableCell(el) {
+            return el && el.tagName === 'TD' && el.getAttribute('contenteditable') === 'true';
+        }
+
+        document.addEventListener('focusin', function (e) {
+            if (!isEditableCell(e.target)) { hideSuggestions(); return; }
+            activeCell = e.target;
+            showSuggestions(e.target, e.target.textContent);
+        });
+        document.addEventListener('input', function (e) {
+            if (!isEditableCell(e.target)) return;
+            activeCell = e.target;
+            const value = e.target.textContent;
+            const colIdx = parseInt(e.target.dataset.col);
+            const colType = inferColumnType(colIdx);
+            const r = validateCellValue(value, colType);
+            if (r.ok) clearInvalid(e.target);
+            else { markInvalid(e.target, r.msg); showToast('⚠️ ' + r.msg); }
+            showSuggestions(e.target, value);
+            // 셀 편집 시 자동 재계산 트리거 (debounced)
+            scheduleFormulaRecalc();
+        });
+        document.addEventListener('keydown', function (e) {
+            if (acBox.style.display !== 'none' && acList.length) {
+                if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    acIdx = Math.min(acIdx + 1, acList.length - 1);
+                    highlightItem();
+                } else if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    acIdx = Math.max(acIdx - 1, -1);
+                    highlightItem();
+                } else if (e.key === 'Enter' && acIdx >= 0) {
+                    e.preventDefault();
+                    applySuggestion(activeCell, acList[acIdx]);
+                } else if (e.key === 'Escape' || e.key === 'Tab') {
+                    hideSuggestions();
+                }
+            }
+        });
+        document.addEventListener('focusout', function (e) {
+            if (!isEditableCell(e.target)) return;
+            setTimeout(function () {
+                if (!acBox.matches(':hover')) hideSuggestions();
+            }, 150);
+            const value = e.target.textContent;
+            const colIdx = parseInt(e.target.dataset.col);
+            const colType = inferColumnType(colIdx);
+            const r = validateCellValue(value, colType);
+            if (r.ok) clearInvalid(e.target);
+            else markInvalid(e.target, r.msg);
+        });
+        document.addEventListener('scroll', hideSuggestions, true);
+        document.addEventListener('click', function (e) {
+            if (!acBox.contains(e.target) && !isEditableCell(e.target)) hideSuggestions();
+        });
+
+        // ─────── 저장 가드 (검증 실패 셀 있으면 차단) ───────
+        const origSave = window.saveData;
+        window.saveData = function () {
+            const invalid = document.querySelectorAll('td[data-invalid="1"]');
+            if (invalid.length > 0) {
+                invalid[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
+                try { invalid[0].focus(); } catch (e) { }
+                showToast('⛔ 형식 오류가 있는 셀이 ' + invalid.length + '개 있습니다. 수정 후 저장하세요.');
+                return;
+            }
+            if (typeof origSave === 'function') origSave.apply(this, arguments);
+        };
+
+        // ─────── 수식 셀 시각화 + 기본 수식 재계산 ───────
+        const fxStyle = document.createElement('style');
+        fxStyle.textContent = [
+            'td[data-formula]:not(:focus) { box-shadow: inset 0 -3px 0 rgba(142,68,173,0.35); }',
+            'td.fx-recomputed { background: #f4ecf9 !important; transition: background 1s ease; }',
+            'td[data-invalid="1"] { background: #ffebee !important; }',
+            '#__autocomplete_box .ac-item:hover { background: #ecf0f1; }'
+        ].join('\n');
+        document.head.appendChild(fxStyle);
+
+        // 컬럼 인덱스 → 엑셀 문자 (A, B, ..., AA, AB, ...)
+        function colLetter(idx) {
+            let s = '';
+            let n = idx;
+            do { s = String.fromCharCode(65 + (n % 26)) + s; n = Math.floor(n / 26) - 1; } while (n >= 0);
+            return s;
+        }
+        function letterToCol(letter) {
+            let n = 0;
+            for (let i = 0; i < letter.length; i++) {
+                n = n * 26 + (letter.charCodeAt(i) - 64);
+            }
+            return n - 1;
+        }
+        // 셀 참조 (예: B5) → DOM 셀 textContent 숫자 변환
+        function getNumericCellRef(ref) {
+            const m = ref.match(/^\$?([A-Z]+)\$?(\d+)$/);
+            if (!m) return 0;
+            const col = letterToCol(m[1]);
+            const excelRow = parseInt(m[2]);
+            // editor의 data-row는 0-based이며 sticky 행 수만큼 offset이 있음
+            const stickyN = window._currentStickyN || 0;
+            const dataRow = excelRow - stickyN - 1;
+            const td = document.querySelector('tbody td[data-row="' + dataRow + '"][data-col="' + col + '"]');
+            if (!td) return 0;
+            const t = (td.textContent || '').replace(/[^0-9.\-]/g, '');
+            const v = parseFloat(t);
+            return isNaN(v) ? 0 : v;
+        }
+        // 매우 단순한 함수 평가기: SUM/AVERAGE/MIN/MAX/COUNT/IF 의 기본 인자만 지원
+        function evalSimpleFormula(formula) {
+            try {
+                let f = formula.trim().replace(/^=/, '');
+                // SUM/AVERAGE/MIN/MAX/COUNT
+                const fnMatch = f.match(/^(SUM|AVERAGE|MIN|MAX|COUNT)\(([^)]+)\)$/i);
+                if (fnMatch) {
+                    const fn = fnMatch[1].toUpperCase();
+                    const args = fnMatch[2].split(',').map(s => s.trim());
+                    let nums = [];
+                    args.forEach(a => {
+                        const rangeM = a.match(/^([A-Z]+\d+):([A-Z]+\d+)$/);
+                        if (rangeM) {
+                            const s = rangeM[1].match(/^([A-Z]+)(\d+)$/);
+                            const e = rangeM[2].match(/^([A-Z]+)(\d+)$/);
+                            const c1 = letterToCol(s[1]); const c2 = letterToCol(e[1]);
+                            const r1 = parseInt(s[2]); const r2 = parseInt(e[2]);
+                            for (let c = c1; c <= c2; c++) {
+                                for (let r = r1; r <= r2; r++) {
+                                    nums.push(getNumericCellRef(colLetter(c) + r));
+                                }
+                            }
+                        } else if (/^[A-Z]+\d+$/.test(a)) {
+                            nums.push(getNumericCellRef(a));
+                        } else if (!isNaN(parseFloat(a))) {
+                            nums.push(parseFloat(a));
+                        }
+                    });
+                    if (fn === 'SUM') return nums.reduce((s, n) => s + n, 0);
+                    if (fn === 'AVERAGE') return nums.length ? nums.reduce((s, n) => s + n, 0) / nums.length : 0;
+                    if (fn === 'MIN') return nums.length ? Math.min.apply(null, nums) : 0;
+                    if (fn === 'MAX') return nums.length ? Math.max.apply(null, nums) : 0;
+                    if (fn === 'COUNT') return nums.filter(n => !isNaN(n)).length;
+                }
+                // 단순 산술: A1+B1, A1*B1 등 (셀 참조와 숫자/연산자만)
+                if (/^[A-Z\d\+\-\*\/\.\(\)\s]+$/.test(f)) {
+                    const replaced = f.replace(/[A-Z]+\d+/g, m => '(' + getNumericCellRef(m) + ')');
+                    if (/^[\d\+\-\*\/\.\(\)\s]+$/.test(replaced)) {
+                        const v = Function('"use strict"; return (' + replaced + ')')();
+                        if (typeof v === 'number' && isFinite(v)) return v;
+                    }
+                }
+            } catch (e) { }
+            return null;
+        }
+
+        let recalcTimer = null;
+        function scheduleFormulaRecalc() {
+            if (recalcTimer) clearTimeout(recalcTimer);
+            recalcTimer = setTimeout(recalcFormulaCells, 250);
+        }
+        function recalcFormulaCells() {
+            const cells = document.querySelectorAll('td[data-formula]');
+            cells.forEach(td => {
+                const f = td.dataset.formula || '';
+                if (!f) return;
+                const v = evalSimpleFormula(f);
+                if (v !== null) {
+                    const display = (typeof v === 'number') ? Math.round(v).toLocaleString() : String(v);
+                    if (td.textContent !== display) {
+                        td.textContent = display;
+                        td.classList.add('fx-recomputed');
+                        setTimeout(() => td.classList.remove('fx-recomputed'), 1200);
+                    }
+                }
+            });
+        }
+        // 시트 전환/페이지 이동 후에도 1회 재계산
+        const recalcObserver = new MutationObserver(function () {
+            scheduleFormulaRecalc();
+        });
+        const editorContent = document.getElementById('editor-content');
+        if (editorContent) recalcObserver.observe(editorContent, { childList: true, subtree: false });
+
+        // 첫 로드 후 한 번
+        setTimeout(recalcFormulaCells, 500);
+
+        // ─────── 안내 토스트 (B등급 환영 메시지) ───────
+        try {
+            const session = JSON.parse(localStorage.getItem('userSession') || 'null');
+            if (session && session.grade === 'B' && !session.isMaster) {
+                setTimeout(function () {
+                    showToast('💡 일용직 입력 모드 — 자동완성·검증이 작동합니다. (Tab/Enter로 빠르게 이동)', 'info');
+                }, 600);
+            }
+        } catch (e) { }
+    })();
     </script>
 </body>
 </html>
