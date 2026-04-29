@@ -374,57 +374,231 @@
                     </h2>
                     
                     <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));">
-                        <!-- 1. 미입금 -->
+                        <!-- 1. 미입금 (채움) -->
                         <div class="glass-card dashboard-card" id="c-card-unpaid" style="grid-column: 1 / -1; border-top: 5px solid var(--danger-color);">
-                            <h3>🔴 미입금 현황 (채움서비스)</h3>
+                            <h3>🔴 미입금 현황 (채움서비스) <span id="c-unpaid-tick" style="font-family:'Courier New', monospace; font-size:0.7rem; color:#888; margin-left:8px;">--:--:--</span></h3>
                             <div class="stat-value masked-data" id="c-val-unpaid" style="color: var(--danger-color); font-size: 2.2rem;">●●●,●●●원</div>
+                            <div id="c-unpaid-breakdown" class="unpaid-breakdown" style="display:none;">
+                                <div class="unpaid-totals">
+                                    <span>📦 공급가액 합계 <b id="c-unpaid-supply">0원</b></span>
+                                    <span>💵 세액 합계 <b id="c-unpaid-tax">0원</b></span>
+                                    <span>🔢 건수 <b id="c-unpaid-count">0</b></span>
+                                </div>
+                                <div class="unpaid-items-wrap">
+                                    <table class="unpaid-items-table">
+                                        <thead>
+                                            <tr><th>작성일자</th><th>상호</th><th>합계금액</th></tr>
+                                        </thead>
+                                        <tbody id="c-unpaid-items"></tbody>
+                                    </table>
+                                </div>
+                            </div>
                             <p class="stat-label">로그인 후 확인 가능</p>
-                            <button class="btn-sm" onclick="openSecureDetail('chaeum_unpaid')">상세보기/수정</button>
+                            <button class="btn-sm" onclick="openSecureDetail('chaeum_f6')">상세보기/수정</button>
                         </div>
 
-                        <!-- 2. 매출액 -->
+                        <!-- 2. 매출액 (채움) -->
                         <div class="glass-card dashboard-card" id="c-card-sales" style="border-top: 5px solid var(--accent-color);">
-                            <h3>📈 매출액 (2026)</h3>
+                            <h3>📈 매출액 (2026) <span style="font-size:0.7rem; color:#888; font-weight:400;">단위: 백만원</span></h3>
                             <div class="stat-value masked-data" id="c-val-sales" style="color: var(--accent-color); font-size: 1.8rem;">●●●,●●●원</div>
-                            <button class="btn-sm" onclick="openSecureDetail('chaeum_sales')">상세보기</button>
+                            <div id="c-sales-monthly-wrap" class="sales-monthly-wrap" style="display:none;">
+                                <table class="sales-monthly-table">
+                                    <thead>
+                                        <tr><th>월</th><th>매출액 (백만원)</th></tr>
+                                    </thead>
+                                    <tbody id="c-sales-monthly-body"></tbody>
+                                </table>
+                            </div>
+                            <button class="btn-sm" onclick="openSecureDetail('chaeum_f6')">상세보기/수정</button>
                         </div>
 
-                        <!-- 3. 매입계산서 -->
+                        <!-- 3. 업체별 청구 통계 (채움) -->
                         <div class="glass-card dashboard-card" id="c-card-purchase" style="border-top: 5px solid #9b59b6;">
-                            <h3>📑 매입계산서</h3>
+                            <h3>📑 업체별 청구 통계 (채움) <span id="c-billing-tick" style="font-family:'Courier New', monospace; font-size:0.7rem; color:#888; margin-left:8px;">--:--:--</span></h3>
                             <div class="masked-data" id="c-val-purchase" style="min-height: 80px; display: flex; align-items: center; justify-content: center;">
                                 <div class="stat-value" style="font-size: 1.8rem;">●●●,●●●원</div>
                             </div>
-                            <button class="btn-sm" onclick="openSecureDetail('chaeum_purchase')">상세보기</button>
+                            <div id="c-billing-breakdown" class="billing-breakdown" style="display:none;">
+                                <div class="billing-totals">
+                                    <span>📅 당월 청구 <b id="c-billing-current">0원</b></span>
+                                    <span>📊 누적 청구 <b id="c-billing-cumulative">0원</b></span>
+                                    <span class="alert">⚠️ 미입금 <b id="c-billing-unpaid">0원</b></span>
+                                </div>
+                                <div class="billing-wrap">
+                                    <table class="billing-table">
+                                        <thead>
+                                            <tr><th>업체</th><th>당월</th><th>누적</th><th>미입금</th><th>지급패턴</th></tr>
+                                        </thead>
+                                        <tbody id="c-billing-body"></tbody>
+                                    </table>
+                                </div>
+                                <p class="billing-note">📌 미입금 = 청구되었으나 아직 입금되지 않은 금액(전월이월). 입금 확인 후 정산.</p>
+                                <div style="margin-top: 8px; text-align: center;">
+                                    <button class="btn-sm" id="c-billing-pattern-btn" onclick="openChaeumVendorPatternModal()" style="display:none; border-color:#9b59b6; color:#9b59b6;">📊 지급패턴 분류 보기 (당일/10일/혼합)</button>
+                                </div>
+                            </div>
+                            <button class="btn-sm" onclick="openSecureDetail('chaeum_f3')">상세보기/수정</button>
                         </div>
 
-                        <!-- 은행 계좌 현황 -->
+                        <!-- 은행 계좌 현황 (채움) -->
                         <div class="glass-card dashboard-card" id="c-card-bank" style="border-top: 5px solid #2980b9;">
-                            <h3>🏦 은행 계좌 현황</h3>
-                            <div class="stat-value masked-data" id="c-val-bank" style="color: #2980b9; font-size: 1.5rem;">●●●,●●●원</div>
-                            <button class="btn-sm" onclick="openSecureDetail('chaeum_bank')">계좌관리</button>
+                            <h3>🏦 은행 계좌 현황 (채움) <span id="c-bank-tick" style="font-family:'Courier New', monospace; font-size:0.7rem; color:#888; margin-left:8px;">--:--:--</span></h3>
+                            <div class="stat-value masked-data" id="c-val-bank" style="color: #2980b9; font-size: 1.8rem;">●●●,●●●원</div>
+                            <div id="c-bank-wrap" class="bank-wrap" style="display:none;">
+                                <div id="c-bank-pills" class="bank-pills"></div>
+                                <div id="c-bank-detail" class="bank-detail">
+                                    <div class="bank-detail-hint">🖱️ 위 은행 위에 마우스를 올리면 주간 변동 추이와 주요 매출 기업이 표시됩니다</div>
+                                </div>
+                                <p class="bank-note">기준: 금전출납(세무용·채움) 시재 시트 · 자동 갱신</p>
+                            </div>
+                            <button class="btn-sm" onclick="openSecureDetail('chaeum_f6')">계좌관리</button>
                         </div>
 
-                        <!-- 4. 현재 잔액 장부 -->
-                        <div class="glass-card dashboard-card" id="c-card-ledger">
-                            <h3>📒 현재 잔액 장부</h3>
+                        <!-- 4. 근무자 통계 (채움) -->
+                        <div class="glass-card dashboard-card" id="c-card-ledger" style="grid-column: 1 / -1; border-top: 5px solid var(--success-color);">
+                            <h3>📒 근무자 통계 (일자별·채움) <span id="c-worker-tick" style="font-family:'Courier New', monospace; font-size:0.7rem; color:#888; margin-left:8px;">--:--:--</span></h3>
                             <div class="stat-value masked-data" id="c-val-ledger" style="color: var(--success-color); font-size: 1.5rem;">●●●,●●●원</div>
-                            <button class="btn-sm" onclick="openSecureDetail('chaeum_ledger')">상세보기</button>
+                            <div id="c-worker-wrap" style="display:none;">
+                                <div class="worker-section-title">📅 일별 지급 합계</div>
+                                <div id="c-daily-strip" class="daily-strip"></div>
+
+                                <div class="worker-tabs">
+                                    <button class="worker-tab active" data-tab="vendor" onclick="switchChaeumWorkerTab('vendor')">🏢 업체별 탐색</button>
+                                    <button class="worker-tab" data-tab="person" onclick="switchChaeumWorkerTab('person')">👤 개인별 탐색</button>
+                                </div>
+
+                                <div id="c-worker-vendor" class="worker-pane active">
+                                    <div class="worker-filter-row">
+                                        <label>현장: <select id="c-worker-vendor-select" onchange="renderChaeumWorkerVendorTable()"></select></label>
+                                        <span id="c-worker-vendor-summary" class="worker-summary"></span>
+                                    </div>
+                                    <div class="worker-table-wrap">
+                                        <table class="worker-table">
+                                            <thead>
+                                                <tr>
+                                                    <th>이름</th>
+                                                    <th>연락처</th>
+                                                    <th>주민번호</th>
+                                                    <th>근무일수</th>
+                                                    <th>최대 연속</th>
+                                                    <th>총 지급액</th>
+                                                    <th>최근 근무</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="c-worker-vendor-body"></tbody>
+                                        </table>
+                                    </div>
+                                </div>
+
+                                <div id="c-worker-person" class="worker-pane" style="display:none;">
+                                    <div class="worker-filter-row">
+                                        <label>이름 검색: <input type="text" id="c-worker-search" placeholder="이름 입력" oninput="renderChaeumWorkerPersonList()"></label>
+                                        <span id="c-worker-person-summary" class="worker-summary"></span>
+                                    </div>
+                                    <div class="worker-person-grid">
+                                        <div class="worker-person-list-wrap">
+                                            <table class="worker-table">
+                                                <thead><tr><th>이름</th><th>주현장</th><th>근무일수</th><th>총 지급액</th></tr></thead>
+                                                <tbody id="c-worker-person-list"></tbody>
+                                            </table>
+                                        </div>
+                                        <div class="worker-detail" id="c-worker-detail">
+                                            <p class="worker-detail-empty">왼쪽 목록에서 이름을 클릭하면 상세 정보가 표시됩니다.</p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <p class="worker-note">📌 데이터 소스: 일자별(지급용)·채움 — 자동 갱신 (60초)</p>
+                            </div>
+                            <button class="btn-sm" onclick="openSecureDetail('chaeum_f5')">상세보기/수정</button>
                         </div>
 
-                        <!-- 5. 2026년 현재 잔액 -->
-                        <div class="glass-card dashboard-card" id="c-card-bal-2026">
-                            <h3>📅 2026년 현재 잔액</h3>
-                            <div class="stat-value masked-data" id="c-val-bal-2026" style="font-size: 1.4rem;">●●●,●●●원</div>
+                        <!-- 5. 분기별 부가세 (채움) -->
+                        <div class="glass-card dashboard-card" id="c-card-bal-2026" style="grid-column: span 2; border-top: 5px solid #16a085;">
+                            <h3>📅 분기별 부가세 (채움) <span id="c-vat-tick" style="font-family:'Courier New', monospace; font-size:0.7rem; color:#888; margin-left:8px;">--:--:--</span></h3>
+                            <div class="stat-value masked-data" id="c-val-bal-2026" style="font-size: 1.4rem; color: #16a085;">●●●,●●●원</div>
+                            <div id="c-vat-wrap" style="display:none;">
+                                <div class="vat-controls">
+                                    <label>연도: <select id="c-vat-year" onchange="renderChaeumVATTable()"></select></label>
+                                    <span class="vat-formula">부가세 = (매출 공급가액 − 매입 공급가액) × 10%</span>
+                                </div>
+                                <div class="vat-wrap">
+                                    <table class="vat-table">
+                                        <thead>
+                                            <tr><th>분기</th><th>매출 공급</th><th>매입 공급</th><th>부가세 (납부액)</th></tr>
+                                        </thead>
+                                        <tbody id="c-vat-body"></tbody>
+                                    </table>
+                                </div>
+                                <p class="vat-note">📌 채움 시트의 매출/매입 공급가액을 분기 그룹화 후 직접 계산. (음수=환급)</p>
+                            </div>
                         </div>
 
-                        <!-- 8. 채움서비스 매월 사용내역 -->
+                        <!-- 8. 채움 매월 사용내역 -->
                         <div class="glass-card dashboard-card" id="c-card-usage">
                             <h3>💳 매월 사용내역</h3>
                             <div class="stat-value masked-data" id="c-val-usage" style="font-size: 1.4rem;">●●●,●●●원</div>
                         </div>
 
-                        <!-- 11. 일용직 근무 내역 - 7개 양식 -->
+                        <!-- 외국인 근로자 통계 (NEW · 채움) -->
+                        <div class="glass-card dashboard-card" id="c-card-foreign-worker" style="grid-column: 1 / -1; border-top: 5px solid #d35400;">
+                            <h3>🌐 외국인 근로자 통계 (채움) <span id="c-foreign-worker-tick" style="font-family:'Courier New', monospace; font-size:0.7rem; color:#888; margin-left:8px;">--:--:--</span></h3>
+                            <div class="stat-value masked-data" id="c-val-foreign-worker" style="color: #d35400; font-size: 1.5rem;">●●●,●●●원</div>
+                            <div id="c-foreign-worker-wrap" style="display:none;">
+                                <div class="worker-section-title" style="border-left-color:#d35400;">🏢 현장별 지급 합계</div>
+                                <div id="c-foreign-strip" class="daily-strip" style="background:#fff5eb; border-color:#fcd9b8;"></div>
+
+                                <div class="worker-tabs">
+                                    <button class="worker-tab active" data-tab="vendor" onclick="switchChaeumForeignTab('vendor')">🏢 현장별 탐색</button>
+                                    <button class="worker-tab" data-tab="person" onclick="switchChaeumForeignTab('person')">👤 개인별 탐색</button>
+                                </div>
+
+                                <div id="c-foreign-vendor" class="worker-pane active">
+                                    <div class="worker-filter-row">
+                                        <label>현장: <select id="c-foreign-vendor-select" onchange="renderChaeumForeignVendorTable()"></select></label>
+                                        <span id="c-foreign-vendor-summary" class="worker-summary"></span>
+                                    </div>
+                                    <div class="worker-table-wrap">
+                                        <table class="worker-table">
+                                            <thead>
+                                                <tr>
+                                                    <th>이름</th>
+                                                    <th>현장</th>
+                                                    <th>업무</th>
+                                                    <th>기간</th>
+                                                    <th>지급액</th>
+                                                    <th>청구액</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="c-foreign-vendor-body"></tbody>
+                                        </table>
+                                    </div>
+                                </div>
+
+                                <div id="c-foreign-person" class="worker-pane" style="display:none;">
+                                    <div class="worker-filter-row">
+                                        <label>이름 검색: <input type="text" id="c-foreign-search" placeholder="이름 입력" oninput="renderChaeumForeignPersonList()"></label>
+                                        <span id="c-foreign-person-summary" class="worker-summary"></span>
+                                    </div>
+                                    <div class="worker-person-grid">
+                                        <div class="worker-person-list-wrap">
+                                            <table class="worker-table">
+                                                <thead><tr><th>이름</th><th>주현장</th><th>건수</th><th>총 지급액</th></tr></thead>
+                                                <tbody id="c-foreign-person-list"></tbody>
+                                            </table>
+                                        </div>
+                                        <div class="worker-detail" id="c-foreign-detail">
+                                            <p class="worker-detail-empty">왼쪽 목록에서 이름을 클릭하면 상세 정보가 표시됩니다.</p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <p class="worker-note">📌 데이터 소스: 업체별(청구용)·외국인 채움 — 자동 갱신 (60초)</p>
+                            </div>
+                            <button class="btn-sm" onclick="openSecureDetail('chaeum_f4')" style="border-color:#d35400; color:#d35400;">상세보기/수정</button>
+                        </div>
+
+                        <!-- 11. 일용직 근무 내역 - 4개 양식 (채움) -->
                         <div class="glass-card dashboard-card" id="c-card-daily-worker" style="grid-column: 1 / -1; border-top: 5px solid #16a085; text-align: left;">
                             <h3 style="text-align:center;">👷 일용직 근무 내역 (채움서비스) — 매일 업데이트</h3>
                             <div class="stat-value masked-data" id="c-val-daily-worker" style="color: #16a085; font-size: 1.3rem; text-align:center; margin-bottom: 12px;">●●●,●●●원</div>

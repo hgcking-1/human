@@ -68,6 +68,29 @@ function startDigitalClock() {
     // 분기별 부가세 카드 — f7 '휴먼' 시트에서 직접 계산
     loadHumanVATFromF7();
     setInterval(loadHumanVATFromF7, 60000);
+
+    // ===== 채움서비스 카드 자동 로드 (휴먼과 동일하게 60초 갱신) =====
+    loadChaeumUnpaidFromF6();
+    setInterval(loadChaeumUnpaidFromF6, 60000);
+
+    loadChaeumSalesFromF6();
+    setInterval(loadChaeumSalesFromF6, 60000);
+
+    loadChaeumBillingFromF3();
+    setInterval(loadChaeumBillingFromF3, 60000);
+
+    loadChaeumBankFromF6();
+    setInterval(loadChaeumBankFromF6, 60000);
+
+    loadChaeumWorkerFromF5();
+    setInterval(loadChaeumWorkerFromF5, 60000);
+
+    loadChaeumVATFromF6();
+    setInterval(loadChaeumVATFromF6, 60000);
+
+    // 외국인 근로자 통계 (채움 신규 카드)
+    loadChaeumForeignWorkerFromF4();
+    setInterval(loadChaeumForeignWorkerFromF4, 60000);
 }
 
 // 미입금(휴먼) 데이터를 f7 시트에서 추출하여 카드에 표시
@@ -2052,6 +2075,2011 @@ function initPurchaseChart() {
     // ... rest of logic for purchase chart if it exists in index.html
 }
 
+// =====================================================================
+// 채움서비스 평행 함수 — 휴먼 함수와 동일 로직, DOM 접두사 c-, localStorage data_chaeum_X
+// =====================================================================
+
+// 1) 미입금(채움) — f6 '미입금(채움)' 시트
+async function loadChaeumUnpaidFromF6() {
+    const card = document.getElementById('c-card-unpaid');
+    if (!card) return;
+
+    let sheets = null;
+    try {
+        const saved = JSON.parse(localStorage.getItem('data_chaeum_f6'));
+        if (saved && saved.sheets) sheets = saved.sheets;
+    } catch (e) {}
+
+    if (!sheets || !sheets['미입금(채움)']) {
+        try {
+            const fileName = '2026.04-금전출납(세무용)_채움.xlsx';
+            const res = await fetch(encodeURIComponent(fileName));
+            if (res.ok) {
+                const buf = await res.arrayBuffer();
+                const wb = XLSX.read(new Uint8Array(buf), { type: 'array', dense: true });
+                sheets = sheets || {};
+                wb.SheetNames.forEach(s => {
+                    const ws = wb.Sheets[s];
+                    sheets[s] = XLSX.utils.sheet_to_json(ws, { header: 1 });
+                });
+            }
+        } catch (e) {}
+    }
+
+    if (!sheets || !sheets['미입금(채움)']) return;
+
+    const sheet = sheets['미입금(채움)'];
+    const unwrap = v => (v && typeof v === 'object' && v.isFormula) ? v.value : v;
+    const toNum = v => {
+        v = unwrap(v);
+        if (v === null || v === undefined || v === '') return 0;
+        return parseInt(v.toString().replace(/[^0-9-]/g, '')) || 0;
+    };
+
+    const totalsRow = sheet[1] || [];
+    const totalAmount = toNum(totalsRow[3]);
+    const totalSupply = toNum(totalsRow[4]);
+    const totalTax = toNum(totalsRow[5]);
+
+    const items = [];
+    for (let i = 4; i < sheet.length; i++) {
+        const row = sheet[i] || [];
+        let dateVal = unwrap(row[1]);
+        if (typeof dateVal === 'string' && dateVal.trim() && !isNaN(dateVal)) dateVal = parseFloat(dateVal);
+        if (typeof dateVal !== 'number' || dateVal < 40000 || dateVal > 80000) continue;
+        const nameVal = unwrap(row[2]);
+        const amountVal = toNum(row[3]);
+        const date = new Date((dateVal - 25569) * 86400 * 1000);
+        const dateStr = date.toISOString().split('T')[0];
+        items.push({ date: dateStr, name: (nameVal || '').toString().trim(), amount: amountVal });
+    }
+    items.sort((a, b) => b.date.localeCompare(a.date));
+
+    const session = JSON.parse(localStorage.getItem('userSession') || 'null');
+    const valEl = document.getElementById('c-val-unpaid');
+    if (valEl && session) {
+        valEl.classList.add('unmasked');
+        valEl.textContent = totalAmount.toLocaleString() + '원';
+    }
+    const supplyEl = document.getElementById('c-unpaid-supply');
+    const taxEl = document.getElementById('c-unpaid-tax');
+    const countEl = document.getElementById('c-unpaid-count');
+    const itemsEl = document.getElementById('c-unpaid-items');
+    const breakdown = document.getElementById('c-unpaid-breakdown');
+    if (supplyEl) supplyEl.textContent = totalSupply.toLocaleString() + '원';
+    if (taxEl) taxEl.textContent = totalTax.toLocaleString() + '원';
+    if (countEl) countEl.textContent = items.length.toLocaleString() + '건';
+    if (itemsEl) {
+        itemsEl.innerHTML = items.map(it =>
+            `<tr><td>${it.date}</td><td>${escapeHtml(it.name)}</td><td>${it.amount.toLocaleString()}원</td></tr>`
+        ).join('') || '<tr><td colspan="3" style="text-align:center;color:#999;padding:14px;">데이터 없음</td></tr>';
+    }
+    if (breakdown && session) breakdown.style.display = 'block';
+    const tick = document.getElementById('c-unpaid-tick');
+    if (tick) {
+        const n = new Date();
+        tick.textContent = `${String(n.getHours()).padStart(2,'0')}:${String(n.getMinutes()).padStart(2,'0')}:${String(n.getSeconds()).padStart(2,'0')}`;
+    }
+}
+
+// 채움 매출 시트명 동적 매칭 (예: 채움0401 / 채움0501)
+function findChaeumSalesSheetName(sheets) {
+    if (!sheets) return null;
+    return Object.keys(sheets).find(n => n === '채움0401') ||
+           Object.keys(sheets).find(n => /^채움\d{4}$/.test(n)) ||
+           Object.keys(sheets).find(n => n.startsWith('채움'));
+}
+
+// 2) 매출액(채움) — f6 '채움0401' 시트
+async function loadChaeumSalesFromF6() {
+    const card = document.getElementById('c-card-sales');
+    if (!card) return;
+
+    let sheets = null;
+    try {
+        const saved = JSON.parse(localStorage.getItem('data_chaeum_f6'));
+        if (saved && saved.sheets) sheets = saved.sheets;
+    } catch (e) {}
+
+    let salesSheetName = findChaeumSalesSheetName(sheets);
+    if (!sheets || !salesSheetName) {
+        try {
+            const fileName = '2026.04-금전출납(세무용)_채움.xlsx';
+            const res = await fetch(encodeURIComponent(fileName));
+            if (res.ok) {
+                const buf = await res.arrayBuffer();
+                const wb = XLSX.read(new Uint8Array(buf), { type: 'array', dense: true });
+                sheets = sheets || {};
+                wb.SheetNames.forEach(s => {
+                    const ws = wb.Sheets[s];
+                    sheets[s] = XLSX.utils.sheet_to_json(ws, { header: 1 });
+                });
+                salesSheetName = findChaeumSalesSheetName(sheets);
+            }
+        } catch (e) {}
+    }
+    if (!sheets || !salesSheetName) return;
+
+    const sheet = sheets[salesSheetName];
+    const unwrap = v => (v && typeof v === 'object' && v.isFormula) ? v.value : v;
+    const toNum = v => {
+        v = unwrap(v);
+        if (v === null || v === undefined || v === '') return 0;
+        if (typeof v === 'number') return v;
+        return parseFloat(v.toString().replace(/[^0-9.\-]/g, '')) || 0;
+    };
+    const toDate = v => {
+        v = unwrap(v);
+        if (typeof v === 'string' && v.trim() && !isNaN(v)) v = parseFloat(v);
+        if (typeof v !== 'number' || v < 40000 || v > 80000) return null;
+        return new Date((v - 25569) * 86400 * 1000);
+    };
+
+    const monthly = new Array(12).fill(0);
+    let total = 0;
+    for (let i = 3; i < sheet.length; i++) {
+        const row = sheet[i] || [];
+        const d = toDate(row[0]);
+        if (!d || d.getFullYear() !== 2026) continue;
+        const sales = toNum(row[2]);
+        monthly[d.getMonth()] += sales;
+        total += sales;
+    }
+
+    const fmtMM = v => {
+        const mm = v / 1000000;
+        return mm.toLocaleString('ko-KR', { maximumFractionDigits: 1 });
+    };
+
+    const session = JSON.parse(localStorage.getItem('userSession') || 'null');
+    if (!session) return;
+
+    const valEl = document.getElementById('c-val-sales');
+    if (valEl) {
+        valEl.classList.add('unmasked');
+        valEl.textContent = fmtMM(total) + ' 백만원';
+    }
+
+    const wrap = document.getElementById('c-sales-monthly-wrap');
+    const tbody = document.getElementById('c-sales-monthly-body');
+    if (tbody) {
+        const rows = [
+            `<tr class="total-row"><td>합계</td><td>${fmtMM(total)}</td></tr>`,
+            ...monthly.map((v, i) => {
+                const cls = v === 0 ? 'month-zero' : '';
+                return `<tr class="${cls}"><td>${i + 1}월</td><td>${fmtMM(v)}</td></tr>`;
+            })
+        ];
+        tbody.innerHTML = rows.join('');
+    }
+    if (wrap) wrap.style.display = 'block';
+}
+
+// 채움 업체별 지급 패턴 통계
+let _chaeumVendorStats = null;
+
+function computeChaeumVendorStats(salesSheet) {
+    const unwrap = v => (v && typeof v === 'object' && v.isFormula) ? v.value : v;
+    const toNum = v => {
+        v = unwrap(v);
+        if (v === null || v === undefined || v === '') return 0;
+        if (typeof v === 'number') return v;
+        return parseFloat(v.toString().replace(/[^0-9.\-]/g, '')) || 0;
+    };
+    const toStr = v => {
+        v = unwrap(v);
+        return (v === null || v === undefined) ? '' : v.toString().trim();
+    };
+
+    const txnsByVendor = {};
+    for (let i = 3; i < salesSheet.length; i++) {
+        const r = salesSheet[i] || [];
+        const created = unwrap(r[0]);
+        const vendor = toStr(r[1]);
+        const sales = toNum(r[2]);
+        const ipgum = unwrap(r[9]);
+        const memo = toStr(r[8]);
+        if (!vendor || sales <= 0) continue;
+        if (typeof created !== 'number' || created < 30000 || created > 80000) continue;
+        const ipgumNum = (typeof ipgum === 'number' && ipgum > 30000 && ipgum < 80000) ? ipgum : null;
+        if (!txnsByVendor[vendor]) txnsByVendor[vendor] = [];
+        txnsByVendor[vendor].push({
+            created, sales, memo,
+            ipgum: ipgumNum,
+            gap: ipgumNum !== null ? (ipgumNum - created) : null,
+            paid: ipgumNum !== null
+        });
+    }
+
+    const all = Object.entries(txnsByVendor).map(([name, txns]) => {
+        const gaps = txns.filter(t => t.gap !== null && t.gap >= -10 && t.gap < 400).map(t => t.gap);
+        const totalAmount = txns.reduce((s, t) => s + t.sales, 0);
+        const paidAmount = txns.filter(t => t.paid).reduce((s, t) => s + t.sales, 0);
+        const unpaidAmount = totalAmount - paidAmount;
+        gaps.sort((a, b) => a - b);
+        const median = gaps.length ? gaps[Math.floor(gaps.length / 2)] : null;
+        const avg = gaps.length ? gaps.reduce((s, x) => s + x, 0) / gaps.length : null;
+        const min = gaps.length ? gaps[0] : null;
+        const max = gaps.length ? gaps[gaps.length - 1] : null;
+
+        const buckets = { sameDay: 0, short: 0, tenDay: 0, biweek: 0, longTerm: 0, veryLong: 0 };
+        gaps.forEach(g => {
+            if (g <= 2) buckets.sameDay++;
+            else if (g <= 7) buckets.short++;
+            else if (g <= 12) buckets.tenDay++;
+            else if (g <= 17) buckets.biweek++;
+            else if (g <= 30) buckets.longTerm++;
+            else buckets.veryLong++;
+        });
+
+        let pattern = '데이터부족';
+        if (gaps.length >= 3) {
+            const n = gaps.length;
+            const sameDayPct = buckets.sameDay / n;
+            const tenDayPct = buckets.tenDay / n;
+            if (sameDayPct >= 0.5) pattern = '당일지급';
+            else if (tenDayPct >= 0.5) pattern = '10일지급';
+            else if (sameDayPct >= 0.2 && tenDayPct >= 0.2) pattern = '혼합';
+            else if (median > 17) pattern = '장기지급';
+            else pattern = '기타';
+        } else if (gaps.length > 0) {
+            if (median <= 2) pattern = '당일지급';
+            else if (median >= 8 && median <= 12) pattern = '10일지급';
+            else pattern = '기타';
+        }
+
+        return {
+            name, txns, totalAmount, paidAmount, unpaidAmount,
+            count: txns.length, paidCount: txns.filter(t => t.paid).length,
+            gaps, median, avg, min, max, buckets, pattern
+        };
+    }).filter(v => v.count >= 2);
+
+    all.sort((a, b) => b.totalAmount - a.totalAmount);
+
+    const byName = {};
+    all.forEach(v => byName[v.name] = v);
+
+    const patternOrder = ['당일지급', '10일지급', '혼합', '장기지급', '기타', '데이터부족'];
+    const byPattern = {};
+    patternOrder.forEach(p => byPattern[p] = []);
+    all.forEach(v => { if (byPattern[v.pattern]) byPattern[v.pattern].push(v); });
+
+    _chaeumVendorStats = { all, byName, byPattern, patternOrder };
+}
+
+function findChaeumVendorStats(vendorName) {
+    if (!_chaeumVendorStats) return null;
+    return _chaeumVendorStats.byName[vendorName] || null;
+}
+
+// 3) 업체별 청구 통계 (채움) — f3 '2026년 04월채움' 시트
+async function loadChaeumBillingFromF3() {
+    const card = document.getElementById('c-card-purchase');
+    if (!card) return;
+
+    let sheets = null;
+    try {
+        const saved = JSON.parse(localStorage.getItem('data_chaeum_f3'));
+        if (saved && saved.sheets) sheets = saved.sheets;
+    } catch (e) {}
+
+    if (!sheets) {
+        try {
+            const fileName = '2026.04-업체별(청구용)_채움.xlsx';
+            const res = await fetch(encodeURIComponent(fileName));
+            if (res.ok) {
+                const buf = await res.arrayBuffer();
+                const wb = XLSX.read(new Uint8Array(buf), { type: 'array', dense: true });
+                sheets = {};
+                wb.SheetNames.forEach(s => {
+                    const ws = wb.Sheets[s];
+                    sheets[s] = XLSX.utils.sheet_to_json(ws, { header: 1 });
+                });
+            }
+        } catch (e) {}
+    }
+    if (!sheets) return;
+
+    const summaryName = Object.keys(sheets).find(n => /\d+월채움\s*$/.test(n))
+                      || Object.keys(sheets).find(n => n.includes('채움'));
+    if (!summaryName || !sheets[summaryName]) return;
+    const sheet = sheets[summaryName];
+
+    const unwrap = v => (v && typeof v === 'object' && v.isFormula) ? v.value : v;
+    const toNum = v => {
+        v = unwrap(v);
+        if (v === null || v === undefined || v === '') return 0;
+        if (typeof v === 'number') return v;
+        return parseFloat(v.toString().replace(/[^0-9.\-]/g, '')) || 0;
+    };
+    const toStr = v => {
+        v = unwrap(v);
+        return (v === null || v === undefined) ? '' : v.toString().trim();
+    };
+
+    // f3 헤더 (row index 1): 0=현장, 1=업체, 2=지급액, 3=청구액(당월), 4=차액, 5=결재, 6=청구(계산서·누적), 7=미청구, 8=전월이월
+    const vendors = [];
+    const totals = { current: 0, cumulative: 0, unpaid: 0 };
+    for (let i = 2; i < sheet.length; i++) {
+        const row = sheet[i] || [];
+        const colA = toStr(row[0]);
+        const name = toStr(row[1]);
+        if (colA === '계' || colA.startsWith('합계')) break;
+        if (!name) continue;
+
+        const current = toNum(row[3]);     // 청구액 (당월)
+        const cumulative = toNum(row[6]);  // 청구(계산서) 누적
+        const unpaid = toNum(row[8]);      // 전월이월
+        const status = toStr(row[5]);      // 결재
+
+        if (cumulative === 0 && current === 0 && unpaid === 0) continue;
+
+        vendors.push({ name, current, cumulative, unpaid, status });
+        totals.current += current;
+        totals.cumulative += cumulative;
+        totals.unpaid += unpaid;
+    }
+    if (vendors.length === 0) return;
+
+    const tickEl = document.getElementById('c-billing-tick');
+    if (tickEl) {
+        const n = new Date();
+        tickEl.textContent = `${String(n.getHours()).padStart(2,'0')}:${String(n.getMinutes()).padStart(2,'0')}:${String(n.getSeconds()).padStart(2,'0')}`;
+    }
+
+    const session = JSON.parse(localStorage.getItem('userSession') || 'null');
+    const valEl = document.getElementById('c-val-purchase');
+    if (valEl && session) {
+        valEl.classList.add('unmasked');
+        valEl.innerHTML = `<div class="stat-value" style="font-size: 1.8rem;">${totals.current.toLocaleString()}원</div>`;
+    }
+    if (!session) return;
+
+    const cur = document.getElementById('c-billing-current');
+    const cum = document.getElementById('c-billing-cumulative');
+    const unp = document.getElementById('c-billing-unpaid');
+    const body = document.getElementById('c-billing-body');
+    const wrap = document.getElementById('c-billing-breakdown');
+    if (cur) cur.textContent = totals.current.toLocaleString() + '원';
+    if (cum) cum.textContent = totals.cumulative.toLocaleString() + '원';
+    if (unp) unp.textContent = totals.unpaid.toLocaleString() + '원';
+
+    // f6 채움 시트 → 업체별 지급 패턴 계산
+    let f6sheets = null;
+    try {
+        const saved = JSON.parse(localStorage.getItem('data_chaeum_f6'));
+        if (saved && saved.sheets) f6sheets = saved.sheets;
+    } catch (e) {}
+    let salesSheetName = findChaeumSalesSheetName(f6sheets);
+    if (!f6sheets || !salesSheetName) {
+        try {
+            const fileName = '2026.04-금전출납(세무용)_채움.xlsx';
+            const res = await fetch(encodeURIComponent(fileName));
+            if (res.ok) {
+                const buf = await res.arrayBuffer();
+                const wb = XLSX.read(new Uint8Array(buf), { type: 'array', dense: true });
+                f6sheets = {};
+                wb.SheetNames.forEach(s => {
+                    f6sheets[s] = XLSX.utils.sheet_to_json(wb.Sheets[s], { header: 1 });
+                });
+                salesSheetName = findChaeumSalesSheetName(f6sheets);
+            }
+        } catch (e) {}
+    }
+    if (f6sheets && salesSheetName) {
+        computeChaeumVendorStats(f6sheets[salesSheetName]);
+    }
+
+    if (body) {
+        body.innerHTML = vendors.map(v => {
+            const stats = findChaeumVendorStats(v.name);
+            const pattern = stats ? stats.pattern : '데이터없음';
+            const cls = patternToClass(pattern);
+            const tooltip = stats
+                ? `중앙값 ${stats.median ?? '—'}일 / 평균 ${stats.avg ? stats.avg.toFixed(1) : '—'}일 / n=${stats.count}건`
+                : '거래 이력 매칭 없음';
+            return `
+                <tr class="vendor-row" onclick="openChaeumVendorModal('${escapeHtml(v.name)}')" title="클릭 시 상세 (입금일 갭·청구내역)">
+                    <td>${escapeHtml(v.name)}</td>
+                    <td>${v.current.toLocaleString()}</td>
+                    <td>${v.cumulative.toLocaleString()}</td>
+                    <td class="${v.unpaid > 0 ? 'has-unpaid' : ''}">${v.unpaid.toLocaleString()}</td>
+                    <td><span class="pattern-badge ${cls}" title="${tooltip}">${pattern}</span></td>
+                </tr>
+            `;
+        }).join('');
+    }
+    if (wrap) wrap.style.display = 'block';
+
+    const catBtn = document.getElementById('c-billing-pattern-btn');
+    if (catBtn) catBtn.style.display = _chaeumVendorStats ? 'inline-block' : 'none';
+}
+
+// 4) 은행 계좌 (채움) — f6 '시재' 시트
+let _chaeumBankData = null;
+let _chaeumBankActive = null;
+
+async function loadChaeumBankFromF6() {
+    const card = document.getElementById('c-card-bank');
+    if (!card) return;
+
+    let sheets = null;
+    try {
+        const saved = JSON.parse(localStorage.getItem('data_chaeum_f6'));
+        if (saved && saved.sheets) sheets = saved.sheets;
+    } catch (e) {}
+
+    if (!sheets || !sheets['시재']) {
+        try {
+            const fileName = '2026.04-금전출납(세무용)_채움.xlsx';
+            const res = await fetch(encodeURIComponent(fileName));
+            if (res.ok) {
+                const buf = await res.arrayBuffer();
+                const wb = XLSX.read(new Uint8Array(buf), { type: 'array', dense: true });
+                sheets = sheets || {};
+                wb.SheetNames.forEach(s => {
+                    const ws = wb.Sheets[s];
+                    sheets[s] = XLSX.utils.sheet_to_json(ws, { header: 1 });
+                });
+            }
+        } catch (e) {}
+    }
+    if (!sheets || !sheets['시재']) return;
+
+    const sheet = sheets['시재'];
+    const unwrap = v => (v && typeof v === 'object' && v.isFormula) ? v.value : v;
+    const toNum = v => {
+        v = unwrap(v);
+        if (v === null || v === undefined || v === '') return 0;
+        if (typeof v === 'number') return v;
+        return parseFloat(v.toString().replace(/[^0-9.\-]/g, '')) || 0;
+    };
+    const toStr = v => {
+        v = unwrap(v);
+        return (v === null || v === undefined) ? '' : v.toString().trim();
+    };
+
+    const row0 = sheet[0] || [];
+    let total = null;
+    const banks = [];
+    for (let i = 0; i < row0.length - 1; i += 2) {
+        const label = toStr(row0[i]);
+        if (!label) continue;
+        const amount = toNum(row0[i + 1]);
+        if (label === '합계') total = amount;
+        else banks.push({ name: label, balance: amount });
+    }
+    if (banks.length === 0) return;
+    if (total === null || total === 0) total = banks.reduce((s, b) => s + b.balance, 0);
+
+    const tickEl = document.getElementById('c-bank-tick');
+    if (tickEl) {
+        const n = new Date();
+        tickEl.textContent = `${String(n.getHours()).padStart(2,'0')}:${String(n.getMinutes()).padStart(2,'0')}:${String(n.getSeconds()).padStart(2,'0')}`;
+    }
+
+    const session = JSON.parse(localStorage.getItem('userSession') || 'null');
+    const valEl = document.getElementById('c-val-bank');
+    if (valEl && session) {
+        valEl.classList.add('unmasked');
+        valEl.textContent = total.toLocaleString() + '원';
+    }
+    if (!session) return;
+
+    const txns = [];
+    let minSerial = Infinity, maxSerial = -Infinity;
+    for (let i = 4; i < sheet.length; i++) {
+        const r = sheet[i] || [];
+        const bankName = toStr(r[0]);
+        if (!bankName) continue;
+        let serial = unwrap(r[1]);
+        if (typeof serial === 'string' && serial.trim() && !isNaN(serial)) serial = parseFloat(serial);
+        if (typeof serial !== 'number' || serial < 30000 || serial > 80000) continue;
+        const dep = toNum(r[3]);
+        const wd = toNum(r[4]);
+        if (dep === 0 && wd === 0) continue;
+        if (serial < minSerial) minSerial = serial;
+        if (serial > maxSerial) maxSerial = serial;
+        txns.push({ bank: bankName, serial, desc: toStr(r[2]), dep, wd });
+    }
+
+    const bankNames = banks.map(b => b.name);
+    txns.forEach(t => { if (!bankNames.includes(t.bank)) bankNames.push(t.bank); });
+
+    let weeks = [];
+    if (isFinite(maxSerial)) {
+        const maxDate = new Date((maxSerial - 25569) * 86400 * 1000);
+        const year = maxDate.getFullYear();
+        const month = maxDate.getMonth();
+        const monthEnd = new Date(year, month + 1, 0).getDate();
+        const monthStartSerial = Math.round(new Date(year, month, 1).getTime() / 86400000) + 25569;
+        for (let s = 1; s <= monthEnd; s += 7) {
+            const e = Math.min(s + 6, monthEnd);
+            weeks.push({ label: `W${weeks.length + 1}`, range: `${s}~${e}일`, startSerial: monthStartSerial + (s - 1), endSerial: monthStartSerial + (e - 1) });
+        }
+    }
+
+    _chaeumBankData = { banks, bankNames, txns, weeks, total };
+    renderChaeumBankPills();
+}
+
+function renderChaeumBankPills() {
+    const pills = document.getElementById('c-bank-pills');
+    const wrap = document.getElementById('c-bank-wrap');
+    if (!pills || !_chaeumBankData) return;
+
+    const { banks, total } = _chaeumBankData;
+    const fmtBalCls = v => v === 0 ? 'zero' : (v < 0 ? 'neg' : '');
+
+    const html = [
+        `<div class="bank-pill total" data-bank="__total__">
+            <span class="bp-name">합계</span>
+            <span class="bp-bal">${total.toLocaleString()}원</span>
+        </div>`,
+        ...banks.map(b => `
+            <div class="bank-pill" data-bank="${escapeHtml(b.name)}">
+                <span class="bp-name">${escapeHtml(b.name)}</span>
+                <span class="bp-bal ${fmtBalCls(b.balance)}">${b.balance.toLocaleString()}원</span>
+            </div>
+        `)
+    ].join('');
+    pills.innerHTML = html;
+
+    pills.querySelectorAll('.bank-pill').forEach(el => {
+        const name = el.dataset.bank;
+        el.addEventListener('mouseenter', () => activateChaeumBank(name));
+        el.addEventListener('click', () => openChaeumBankModal(name));
+    });
+
+    if (wrap) wrap.style.display = 'block';
+    if (_chaeumBankActive) activateChaeumBank(_chaeumBankActive);
+}
+
+function activateChaeumBank(name) {
+    _chaeumBankActive = name;
+    const pills = document.getElementById('c-bank-pills');
+    if (pills) {
+        pills.querySelectorAll('.bank-pill').forEach(el => {
+            el.classList.toggle('active', el.dataset.bank === name);
+        });
+    }
+    renderChaeumBankDetail(name);
+}
+
+function renderChaeumBankDetail(name) {
+    const detail = document.getElementById('c-bank-detail');
+    if (!detail || !_chaeumBankData) return;
+    const { txns, weeks } = _chaeumBankData;
+
+    const isTotal = name === '__total__';
+    const targetTxns = isTotal ? txns : txns.filter(t => t.bank === name);
+    const headerName = isTotal ? '전체 합계' : name;
+
+    const fmt = v => (v >= 0 ? '+' : '') + v.toLocaleString();
+    const cls = v => v > 0 ? 'pos' : (v < 0 ? 'neg' : 'zero');
+    const weekCells = weeks.map(w => {
+        const net = targetTxns
+            .filter(t => t.serial >= w.startSerial && t.serial <= w.endSerial)
+            .reduce((s, t) => s + t.dep - t.wd, 0);
+        return `<div class="bd-trend-cell">
+            <div class="bdt-w">${w.label}</div>
+            <div class="bdt-r">${w.range}</div>
+            <div class="bdt-v ${cls(net)}">${net === 0 ? '—' : fmt(net)}</div>
+        </div>`;
+    }).join('');
+    const monthNet = targetTxns.reduce((s, t) => s + t.dep - t.wd, 0);
+    const monthCell = `<div class="bd-trend-cell month-total">
+        <div class="bdt-w">월계</div>
+        <div class="bdt-r">합산</div>
+        <div class="bdt-v ${cls(monthNet)}">${monthNet === 0 ? '—' : fmt(monthNet)}</div>
+    </div>`;
+
+    const byDesc = {};
+    targetTxns.forEach(t => {
+        if (t.dep <= 0) return;
+        const key = t.desc || '(미기재)';
+        if (!byDesc[key]) byDesc[key] = { sum: 0, count: 0 };
+        byDesc[key].sum += t.dep;
+        byDesc[key].count++;
+    });
+    const sorted = Object.entries(byDesc).sort((a, b) => b[1].sum - a[1].sum);
+    const top = sorted.slice(0, 5);
+    const totalDeposits = sorted.reduce((s, [, v]) => s + v.sum, 0);
+    const topHtml = top.length === 0
+        ? `<div class="bd-empty">해당 기간 입금 내역 없음</div>`
+        : `<ol class="bd-top-list">${top.map(([desc, v]) => `
+            <li>
+                <span class="bdt-name" title="${escapeHtml(desc)}">${escapeHtml(desc)}</span>
+                <span class="bdt-amt">${v.sum.toLocaleString()}<span class="bdt-cnt">×${v.count}</span></span>
+            </li>
+        `).join('')}</ol>`;
+
+    const monthLabel = weeks.length ? (() => {
+        const d = new Date((weeks[0].startSerial - 25569) * 86400 * 1000);
+        return `${String(d.getFullYear()).slice(2)}-${String(d.getMonth() + 1).padStart(2, '0')}월`;
+    })() : '';
+
+    detail.innerHTML = `
+        <div class="bank-detail-content">
+            <div class="bank-detail-section">
+                <h6>
+                    <span><span class="bds-bank">${escapeHtml(headerName)}</span> · 📈 주간 변동</span>
+                    <span class="bds-meta">${monthLabel} · ${targetTxns.length}건</span>
+                </h6>
+                <div class="bd-trend">${weekCells}${monthCell}</div>
+            </div>
+            <div class="bank-detail-section">
+                <h6>
+                    <span><span class="bds-bank">${escapeHtml(headerName)}</span> · 🏢 주요 매출 기업</span>
+                    <span class="bds-meta">∑ ${totalDeposits.toLocaleString()}원 · 클릭 시 상세창</span>
+                </h6>
+                ${topHtml}
+            </div>
+        </div>
+    `;
+}
+
+function openChaeumBankModal(name) {
+    if (!_chaeumBankData) return;
+    const modal = document.getElementById('bank-detail-modal');
+    if (!modal) return;
+
+    const { banks, txns, weeks, total } = _chaeumBankData;
+    const isTotal = name === '__total__';
+    const headerName = isTotal ? '전체 합계' : name;
+    const targetTxns = isTotal ? txns : txns.filter(t => t.bank === name);
+    const currentBal = isTotal ? total : (banks.find(b => b.name === name) || { balance: 0 }).balance;
+
+    const fmt = v => (v >= 0 ? '+' : '') + v.toLocaleString();
+    const cls = v => v > 0 ? 'pos' : (v < 0 ? 'neg' : 'zero');
+    const fmtDate = serial => {
+        const d = new Date((serial - 25569) * 86400 * 1000);
+        return `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    };
+    const fmtFullDate = serial => {
+        const d = new Date((serial - 25569) * 86400 * 1000);
+        const wd = ['일','월','화','수','목','금','토'][d.getDay()];
+        return `${String(d.getFullYear()).slice(2)}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} (${wd})`;
+    };
+
+    const title = document.getElementById('bank-modal-title');
+    if (title) {
+        const balCls = currentBal === 0 ? 'zero' : (currentBal < 0 ? 'neg' : '');
+        const balColor = balCls === 'neg' ? '#ffcccc' : (balCls === 'zero' ? '#d6eaf8' : 'white');
+        title.innerHTML = `🏦 ${escapeHtml(headerName)} 상세 내역 (채움) <span class="bm-bal-tag" style="color:${balColor};">${currentBal.toLocaleString()}원</span>`;
+    }
+
+    const monthDep = targetTxns.reduce((s, t) => s + t.dep, 0);
+    const monthWd = targetTxns.reduce((s, t) => s + t.wd, 0);
+    const monthNet = monthDep - monthWd;
+    const summaryHtml = `
+        <div class="bm-summary">
+            <div class="bm-sum-card"><div class="bms-label">현재 잔액</div><div class="bms-value">${currentBal.toLocaleString()}원</div></div>
+            <div class="bm-sum-card"><div class="bms-label">월 입금 합계</div><div class="bms-value pos">+${monthDep.toLocaleString()}원</div></div>
+            <div class="bm-sum-card"><div class="bms-label">월 출금 합계</div><div class="bms-value neg">−${monthWd.toLocaleString()}원</div></div>
+            <div class="bm-sum-card"><div class="bms-label">월 순변동 (${targetTxns.length}건)</div><div class="bms-value ${cls(monthNet)}">${monthNet === 0 ? '—' : fmt(monthNet)}원</div></div>
+        </div>
+    `;
+
+    const weekCells = weeks.map(w => {
+        const net = targetTxns
+            .filter(t => t.serial >= w.startSerial && t.serial <= w.endSerial)
+            .reduce((s, t) => s + t.dep - t.wd, 0);
+        return `<div class="bm-trend-cell">
+            <div class="bmt-w">${w.label}</div>
+            <div class="bmt-r">${w.range}</div>
+            <div class="bmt-v ${cls(net)}">${net === 0 ? '—' : fmt(net)}</div>
+        </div>`;
+    }).join('');
+    const trendMonthCell = `<div class="bm-trend-cell month-total">
+        <div class="bmt-w">월계</div>
+        <div class="bmt-r">합산</div>
+        <div class="bmt-v ${cls(monthNet)}">${monthNet === 0 ? '—' : fmt(monthNet)}</div>
+    </div>`;
+    const monthLabel = weeks.length ? (() => {
+        const d = new Date((weeks[0].startSerial - 25569) * 86400 * 1000);
+        return `${String(d.getFullYear()).slice(2)}-${String(d.getMonth() + 1).padStart(2, '0')}월`;
+    })() : '';
+
+    const topByKind = (kind) => {
+        const by = {};
+        targetTxns.forEach(t => {
+            const amt = kind === 'dep' ? t.dep : t.wd;
+            if (amt <= 0) return;
+            const key = t.desc || '(미기재)';
+            if (!by[key]) by[key] = { sum: 0, count: 0 };
+            by[key].sum += amt;
+            by[key].count++;
+        });
+        const sorted = Object.entries(by).sort((a, b) => b[1].sum - a[1].sum);
+        return { sorted, top: sorted.slice(0, 5), total: sorted.reduce((s, [, v]) => s + v.sum, 0) };
+    };
+    const dep = topByKind('dep');
+    const wd = topByKind('wd');
+    const renderTopCard = (data, kind) => {
+        const label = kind === 'dep' ? '주요 입금처' : '주요 출금 항목';
+        if (data.top.length === 0) {
+            return `<div class="bm-top-card ${kind}">
+                <h6><span>${kind === 'dep' ? '💰' : '💸'} ${label}</span><span class="bmt-sum">∑ 0원</span></h6>
+                <div class="bmt-empty">해당 기간 ${kind === 'dep' ? '입금' : '출금'} 내역 없음</div>
+            </div>`;
+        }
+        const items = data.top.map(([desc, v]) => `
+            <li>
+                <span class="bmt-name" title="${escapeHtml(desc)}">${escapeHtml(desc)}</span>
+                <span class="bmt-amt">${v.sum.toLocaleString()}<span class="bmt-cnt">×${v.count}</span></span>
+            </li>
+        `).join('');
+        return `<div class="bm-top-card ${kind}">
+            <h6><span>${kind === 'dep' ? '💰' : '💸'} ${label} (상위 5)</span><span class="bmt-sum">∑ ${data.total.toLocaleString()}원</span></h6>
+            <ol>${items}</ol>
+        </div>`;
+    };
+
+    const allSerials = txns.map(t => t.serial);
+    const refSerial = allSerials.length ? Math.max(...allSerials) : 0;
+    const cutoffSerial = refSerial - 9;
+
+    const sortedAll = [...targetTxns].sort((a, b) => a.serial - b.serial || 0);
+    const totalNet = sortedAll.reduce((s, t) => s + t.dep - t.wd, 0);
+    const openingBal = currentBal - totalNet;
+    let running = openingBal;
+    const txnsWithRunning = sortedAll.map(t => {
+        running += t.dep - t.wd;
+        return { ...t, running };
+    });
+    const recent = txnsWithRunning.filter(t => t.serial >= cutoffSerial).reverse();
+
+    let ledgerHtml;
+    if (recent.length === 0) {
+        ledgerHtml = `<div class="bm-ledger-empty">최근 10일 내 거래 내역이 없습니다.</div>`;
+    } else {
+        const rowsHtml = [];
+        const dayGroups = {};
+        recent.forEach(t => {
+            if (!dayGroups[t.serial]) dayGroups[t.serial] = [];
+            dayGroups[t.serial].push(t);
+        });
+        const sortedDays = Object.keys(dayGroups).map(Number).sort((a, b) => b - a);
+        sortedDays.forEach(serial => {
+            const items = dayGroups[serial];
+            const dayDep = items.reduce((s, t) => s + t.dep, 0);
+            const dayWd = items.reduce((s, t) => s + t.wd, 0);
+            const dayNet = dayDep - dayWd;
+            const colspan = isTotal ? 5 : 4;
+            rowsHtml.push(`<tr class="day-divider"><td colspan="${colspan}">${fmtFullDate(serial)} <span class="day-net ${cls(dayNet)}">일 순변동: ${dayNet === 0 ? '0' : fmt(dayNet)}원</span></td></tr>`);
+            items.forEach(t => {
+                const depCell = t.dep > 0 ? `<td class="dep">+${t.dep.toLocaleString()}</td>` : `<td class="dep zero-cell">—</td>`;
+                const wdCell = t.wd > 0 ? `<td class="wd">−${t.wd.toLocaleString()}</td>` : `<td class="wd zero-cell">—</td>`;
+                const bankCell = isTotal ? `<td class="bank">${escapeHtml(t.bank)}</td>` : '';
+                rowsHtml.push(`<tr>
+                    <td class="date">${fmtDate(t.serial)}</td>
+                    ${bankCell}
+                    <td class="desc">${escapeHtml(t.desc || '(미기재)')}</td>
+                    ${depCell}
+                    ${wdCell}
+                    <td class="run">${t.running.toLocaleString()}</td>
+                </tr>`);
+            });
+        });
+        const headBank = isTotal ? '<th>은행</th>' : '';
+        ledgerHtml = `<div class="bm-ledger-wrap">
+            <table class="bm-ledger-table">
+                <thead><tr><th>날짜</th>${headBank}<th>적요</th><th>입금</th><th>출금</th><th>잔액</th></tr></thead>
+                <tbody>${rowsHtml.join('')}</tbody>
+            </table>
+        </div>`;
+    }
+
+    const refLabel = refSerial ? `${fmtDate(cutoffSerial)} ~ ${fmtDate(refSerial)}` : '데이터 없음';
+
+    document.getElementById('bank-modal-body').innerHTML = `
+        ${summaryHtml}
+        <div class="bm-section">
+            <div class="bm-section-title"><span>📈 주간 변동 추이</span><span class="bms-meta">${monthLabel}</span></div>
+            <div class="bm-trend">${weekCells}${trendMonthCell}</div>
+        </div>
+        <div class="bm-section">
+            <div class="bm-section-title"><span>💱 주요 입출금 현황</span><span class="bms-meta">월 ${targetTxns.length}건 기준</span></div>
+            <div class="bm-top-grid">${renderTopCard(dep, 'dep')}${renderTopCard(wd, 'wd')}</div>
+        </div>
+        <div class="bm-section">
+            <div class="bm-section-title"><span>📋 최근 10일 입출금 내역</span><span class="bms-meta">${refLabel} · ${recent.length}건</span></div>
+            ${ledgerHtml}
+        </div>
+    `;
+
+    modal.style.display = 'block';
+    document.body.style.overflow = 'hidden';
+}
+
+// 채움 업체 상세 모달
+function openChaeumVendorModal(vendorName) {
+    const modal = document.getElementById('vendor-detail-modal');
+    const body = document.getElementById('vendor-modal-body');
+    const title = document.getElementById('vendor-modal-title');
+    if (!modal || !body || !title) return;
+
+    const stats = findChaeumVendorStats(vendorName);
+    const patternLabel = stats ? stats.pattern : '데이터없음';
+    const patternCls = patternToClass(patternLabel);
+    title.innerHTML = `📑 ${escapeHtml(vendorName)} (채움) <span class="pattern-badge ${patternCls}">${patternLabel}</span>`;
+
+    if (!stats || stats.count === 0) {
+        body.innerHTML = `
+            <div style="padding: 40px; text-align: center; color: #9ca3af;">
+                <div style="font-size: 2.5rem; margin-bottom: 12px;">📭</div>
+                <div style="font-size: 0.95rem; font-weight: 600; color: #6b7280;">매출 거래 이력 없음</div>
+                <div style="font-size: 0.78rem; margin-top: 8px;">금전출납(세무용·채움) 시트의 매출 데이터에서 매칭되는 업체를 찾지 못했습니다.<br>업체명 표기가 일치하는지 확인하세요.</div>
+            </div>
+        `;
+        modal.style.display = 'block';
+        document.body.style.overflow = 'hidden';
+        return;
+    }
+
+    const fmtSerial = s => {
+        if (typeof s !== 'number') return '—';
+        const d = new Date((s - 25569) * 86400 * 1000);
+        return `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    };
+    const fmtFullSerial = s => {
+        if (typeof s !== 'number') return '—';
+        const d = new Date((s - 25569) * 86400 * 1000);
+        return `${String(d.getFullYear()).slice(2)}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    };
+
+    const unpaidCount = stats.count - stats.paidCount;
+    const summaryHtml = `
+        <div class="vm-summary">
+            <div class="vm-sum-card"><div class="vms-label">총 청구건수</div><div class="vms-val">${stats.count}건</div></div>
+            <div class="vm-sum-card ok"><div class="vms-label">입금완료</div><div class="vms-val">${stats.paidCount}건 / ${stats.paidAmount.toLocaleString()}원</div></div>
+            <div class="vm-sum-card alert"><div class="vms-label">미입금</div><div class="vms-val">${unpaidCount}건 / ${stats.unpaidAmount.toLocaleString()}원</div></div>
+            <div class="vm-sum-card"><div class="vms-label">평균/중앙값 갭</div><div class="vms-val">${stats.avg ? stats.avg.toFixed(1) : '—'}일 / ${stats.median ?? '—'}일</div></div>
+        </div>
+    `;
+
+    const total = stats.gaps.length;
+    const histDef = [
+        { key: 'sameDay', label: '당일', range: '0~2일', cls: 'same' },
+        { key: 'short', label: '단기', range: '3~7일', cls: 'short' },
+        { key: 'tenDay', label: '10일', range: '8~12일', cls: 'ten' },
+        { key: 'biweek', label: '2주', range: '13~17일', cls: 'biweek' },
+        { key: 'longTerm', label: '장기', range: '18~30일', cls: 'long' },
+        { key: 'veryLong', label: '매우장기', range: '30일+', cls: 'very' },
+    ];
+    const histHtml = `
+        <div class="vm-section">
+            <h4>📊 청구→입금 갭 분포 <span class="vms-meta">유효 ${total}건 / 최소 ${stats.min ?? '—'}일 · 최대 ${stats.max ?? '—'}일</span></h4>
+            <div class="vm-hist">
+                ${histDef.map(h => {
+                    const c = stats.buckets[h.key] || 0;
+                    const pct = total > 0 ? (c / total * 100).toFixed(0) : 0;
+                    return `<div class="vm-hist-bar ${h.cls}">
+                        <div class="vmh-label">${h.label}</div>
+                        <div class="vmh-range">${h.range}</div>
+                        <div class="vmh-count">${c}</div>
+                        <div class="vmh-pct">${pct}%</div>
+                    </div>`;
+                }).join('')}
+            </div>
+        </div>
+    `;
+
+    let forecastHtml = '';
+    const unpaidTxns = stats.txns.filter(t => !t.paid).sort((a, b) => b.created - a.created);
+    if (unpaidTxns.length > 0 && stats.median !== null) {
+        const recent = unpaidTxns[0];
+        const expected = recent.created + (stats.median || 10);
+        const today = Math.round(new Date().getTime() / 86400000) + 25569;
+        const daysUntil = expected - today;
+        const status = daysUntil > 0 ? `${daysUntil}일 후 예정` : (daysUntil === 0 ? '오늘 예정' : `${-daysUntil}일 지연`);
+        forecastHtml = `
+            <div class="vm-forecast" style="${daysUntil < 0 ? 'background:linear-gradient(135deg,#fef2f2,#fecaca);border-color:#f87171;' : ''}">
+                <div class="vmf-icon">${daysUntil >= 0 ? '📅' : '⚠️'}</div>
+                <div class="vmf-text">
+                    <div class="vmf-title">📌 다음 예상 입금일: ${fmtFullSerial(expected)} (${status})</div>
+                    <div class="vmf-detail">최근 청구 ${fmtFullSerial(recent.created)} · ${recent.sales.toLocaleString()}원 · 패턴 중앙값 ${stats.median}일 적용</div>
+                </div>
+            </div>
+        `;
+    }
+
+    const sortedTxns = [...stats.txns].sort((a, b) => b.created - a.created).slice(0, 30);
+    const ledgerRows = sortedTxns.map(t => {
+        const gapCls = t.gap === null ? 'unpaid' : (t.gap <= 2 ? 'same-day' : (t.gap <= 12 ? 'ten-day' : 'long-day'));
+        const gapText = t.gap === null ? '미입금' : `${t.gap}일`;
+        return `
+            <tr>
+                <td class="date">${fmtSerial(t.created)}</td>
+                <td class="amt">${t.sales.toLocaleString()}</td>
+                <td class="date">${t.ipgum ? fmtSerial(t.ipgum) : '—'}</td>
+                <td class="gap ${gapCls}">${gapText}</td>
+                <td class="memo">${escapeHtml(t.memo || '')}</td>
+            </tr>
+        `;
+    }).join('');
+    const ledgerHtml = `
+        <div class="vm-section">
+            <h4>📋 청구 내역 (최근 30건) <span class="vms-meta">전체 ${stats.count}건 중</span></h4>
+            <div class="vm-ledger-wrap">
+                <table class="vm-ledger-table">
+                    <thead><tr><th>청구일</th><th>금액</th><th>입금일</th><th>갭</th><th>비고</th></tr></thead>
+                    <tbody>${ledgerRows || '<tr><td colspan="5" style="text-align:center;color:#9ca3af;padding:14px;">데이터 없음</td></tr>'}</tbody>
+                </table>
+            </div>
+        </div>
+    `;
+
+    body.innerHTML = summaryHtml + histHtml + forecastHtml + ledgerHtml;
+    modal.style.display = 'block';
+    document.body.style.overflow = 'hidden';
+}
+
+// 채움 지급패턴 분류 모달
+function openChaeumVendorPatternModal() {
+    if (!_chaeumVendorStats) return;
+    const modal = document.getElementById('vendor-pattern-modal');
+    const body = document.getElementById('vendor-pattern-body');
+    if (!modal || !body) return;
+
+    const { byPattern, patternOrder, all } = _chaeumVendorStats;
+    const helpHtml = `
+        <div class="vp-help">
+            💡 <b>지급패턴 분류 기준 (채움)</b> — 매출 거래의 청구일(작성일자) → 입금일 갭을 분석하여 자동 분류합니다.<br>
+            • <b>당일지급</b>: 갭 0~2일이 50% 이상 · 즉시 정산 업체<br>
+            • <b>10일지급</b>: 갭 8~12일이 50% 이상 · 정기 결제일 업체<br>
+            • <b>혼합 (당일+10일)</b>: 두 패턴이 모두 20% 이상<br>
+            • <b>장기지급</b>: 중앙값 18일 초과<br>
+            업체명을 클릭하면 상세 분석을 볼 수 있습니다.
+        </div>
+    `;
+
+    const patternMeta = {
+        '당일지급': { icon: '⚡', desc: '청구 즉시(0~2일 내) 입금되는 업체.', cls: 'pat-same' },
+        '10일지급': { icon: '📅', desc: '청구 후 약 10일 후 입금되는 업체.', cls: 'pat-ten' },
+        '혼합': { icon: '⚠️', desc: '당일지급과 10일지급 패턴이 혼재.', cls: 'pat-mix' },
+        '장기지급': { icon: '🐢', desc: '중앙값 18일 초과로 장기간 후 입금.', cls: 'pat-long' },
+        '기타': { icon: '📊', desc: '특정 패턴에 부합하지 않는 업체.', cls: 'pat-etc' },
+        '데이터부족': { icon: '❓', desc: '거래 건수가 부족함.', cls: 'pat-na' }
+    };
+
+    const tabs = patternOrder.filter(p => byPattern[p].length > 0);
+    const tabsHtml = tabs.map((p, i) => `
+        <button class="vp-tab ${i === 0 ? 'active' : ''}" data-pattern="${p}" onclick="switchVendorPatternTab('${p}')">
+            ${patternMeta[p]?.icon || '•'} ${p}
+            <span class="vp-tab-count">${byPattern[p].length}</span>
+        </button>
+    `).join('');
+
+    const panesHtml = tabs.map((p, i) => {
+        const list = byPattern[p];
+        const meta = patternMeta[p] || {};
+        const items = list.map(v => `
+            <div class="vp-vendor-item" data-vendor="${escapeHtml(v.name)}">
+                <span class="vpv-name" title="${escapeHtml(v.name)}">${escapeHtml(v.name)}</span>
+                <span class="vpv-stat"><span class="vpv-l">중앙갭/평균</span>${v.median ?? '—'}일 / ${v.avg ? v.avg.toFixed(1) : '—'}일</span>
+                <span class="vpv-amt"><span class="vpv-l" style="color:#9ca3af;">총 청구</span>${v.totalAmount.toLocaleString()}원</span>
+                <span class="vpv-paid"><span class="vpv-l" style="color:#9ca3af;">입금완료</span>${v.paidCount}/${v.count}건</span>
+                <span class="vpv-arrow">→</span>
+            </div>
+        `).join('') || '<div class="vp-empty">해당 패턴의 업체 없음</div>';
+        return `
+            <div class="vp-pane ${i === 0 ? 'active' : ''}" data-pattern="${p}">
+                <div class="vp-pane-desc">${meta.icon || ''} ${meta.desc || ''}</div>
+                <div class="vp-vendor-list">${items}</div>
+            </div>
+        `;
+    }).join('');
+
+    body.innerHTML = helpHtml +
+        `<div class="vp-tabs">${tabsHtml}</div>` +
+        panesHtml +
+        `<p style="margin-top:14px; font-size:0.7rem; color:#95a5a6; text-align:right;">📌 분석 대상 (채움): 매출 거래 ${all.length}개 업체 (2건 이상)</p>`;
+
+    body.querySelectorAll('.vp-vendor-item').forEach(el => {
+        el.addEventListener('click', () => {
+            const name = el.dataset.vendor;
+            closeVendorPatternModal();
+            openChaeumVendorModal(name);
+        });
+    });
+
+    modal.style.display = 'block';
+    document.body.style.overflow = 'hidden';
+}
+
+// 6) 분기별 부가세 (채움) — f6 채움 시트의 매출/매입 공급가액 직접 계산
+let _chaeumVATData = null;
+
+async function loadChaeumVATFromF6() {
+    const card = document.getElementById('c-card-bal-2026');
+    if (!card) return;
+
+    let sheets = null;
+    try {
+        const saved = JSON.parse(localStorage.getItem('data_chaeum_f6'));
+        if (saved && saved.sheets) sheets = saved.sheets;
+    } catch (e) {}
+
+    let salesSheetName = findChaeumSalesSheetName(sheets);
+    if (!sheets || !salesSheetName) {
+        try {
+            const fileName = '2026.04-금전출납(세무용)_채움.xlsx';
+            const res = await fetch(encodeURIComponent(fileName));
+            if (res.ok) {
+                const buf = await res.arrayBuffer();
+                const wb = XLSX.read(new Uint8Array(buf), { type: 'array', dense: true });
+                sheets = sheets || {};
+                wb.SheetNames.forEach(s => {
+                    const ws = wb.Sheets[s];
+                    sheets[s] = XLSX.utils.sheet_to_json(ws, { header: 1 });
+                });
+                salesSheetName = findChaeumSalesSheetName(sheets);
+            }
+        } catch (e) {}
+    }
+    if (!sheets || !salesSheetName) return;
+
+    const sheet = sheets[salesSheetName];
+    const unwrap = v => (v && typeof v === 'object' && v.isFormula) ? v.value : v;
+    const toNum = v => {
+        v = unwrap(v);
+        if (v === null || v === undefined || v === '') return 0;
+        if (typeof v === 'number') return v;
+        return parseFloat(v.toString().replace(/[^0-9.\-]/g, '')) || 0;
+    };
+
+    const byYear = {};
+    const ensureYear = y => {
+        if (!byYear[y]) {
+            byYear[y] = {
+                Q1: { sales: 0, purchase: 0, vat: 0, count: 0 },
+                Q2: { sales: 0, purchase: 0, vat: 0, count: 0 },
+                Q3: { sales: 0, purchase: 0, vat: 0, count: 0 },
+                Q4: { sales: 0, purchase: 0, vat: 0, count: 0 },
+                total: { sales: 0, purchase: 0, vat: 0, count: 0 }
+            };
+        }
+        return byYear[y];
+    };
+
+    for (let i = 3; i < sheet.length; i++) {
+        const row = sheet[i] || [];
+        let serial = unwrap(row[0]);
+        if (typeof serial === 'string' && serial.trim() && !isNaN(serial)) serial = parseFloat(serial);
+        if (typeof serial !== 'number' || serial < 30000 || serial > 80000) continue;
+
+        const date = new Date((serial - 25569) * 86400 * 1000);
+        const year = date.getFullYear();
+        const month = date.getMonth() + 1;
+        const q = 'Q' + (Math.floor((month - 1) / 3) + 1);
+
+        const salesSupply = toNum(row[3]);
+        const purchaseSupply = toNum(row[6]);
+        if (salesSupply === 0 && purchaseSupply === 0) continue;
+
+        const yObj = ensureYear(year);
+        yObj[q].sales += salesSupply;
+        yObj[q].purchase += purchaseSupply;
+        yObj[q].count++;
+        yObj.total.sales += salesSupply;
+        yObj.total.purchase += purchaseSupply;
+        yObj.total.count++;
+    }
+
+    Object.keys(byYear).forEach(y => {
+        ['Q1', 'Q2', 'Q3', 'Q4', 'total'].forEach(k => {
+            const x = byYear[y][k];
+            x.vat = Math.round((x.sales - x.purchase) * 0.1);
+        });
+    });
+
+    _chaeumVATData = { byYear };
+
+    const tickEl = document.getElementById('c-vat-tick');
+    if (tickEl) {
+        const n = new Date();
+        tickEl.textContent = `${String(n.getHours()).padStart(2,'0')}:${String(n.getMinutes()).padStart(2,'0')}:${String(n.getSeconds()).padStart(2,'0')}`;
+    }
+
+    const years = Object.keys(byYear).map(Number).sort((a, b) => b - a);
+    const latestYear = years[0];
+    const session = JSON.parse(localStorage.getItem('userSession') || 'null');
+    const valEl = document.getElementById('c-val-bal-2026');
+    if (valEl && session && latestYear) {
+        valEl.classList.add('unmasked');
+        const latestVAT = byYear[latestYear].total.vat;
+        const sign = latestVAT < 0 ? '환급 ' : '';
+        valEl.textContent = `${latestYear}년 ${sign}${Math.abs(latestVAT).toLocaleString()}원`;
+    }
+    if (!session) return;
+
+    const sel = document.getElementById('c-vat-year');
+    if (sel) {
+        const prev = sel.value;
+        sel.innerHTML = years.map(y => `<option value="${y}">${y}년</option>`).join('');
+        if (prev && years.includes(parseInt(prev))) sel.value = prev;
+        else sel.value = String(latestYear);
+    }
+    renderChaeumVATTable();
+
+    const wrap = document.getElementById('c-vat-wrap');
+    if (wrap) wrap.style.display = 'block';
+}
+
+function renderChaeumVATTable() {
+    const body = document.getElementById('c-vat-body');
+    const sel = document.getElementById('c-vat-year');
+    if (!body || !sel || !_chaeumVATData) return;
+    const year = parseInt(sel.value);
+    const yObj = _chaeumVATData.byYear[year];
+    if (!yObj) {
+        body.innerHTML = '<tr><td colspan="4" style="text-align:center;color:#999;padding:14px;">데이터 없음</td></tr>';
+        return;
+    }
+    const fmt = v => v.toLocaleString();
+    const rangeMap = { Q1: '1~3월', Q2: '4~6월', Q3: '7~9월', Q4: '10~12월' };
+    const rows = ['Q1', 'Q2', 'Q3', 'Q4'].map(q => {
+        const x = yObj[q];
+        const empty = x.count === 0;
+        const cls = empty ? 'empty-q' : '';
+        const vatCls = x.vat > 0 ? 'pos' : (x.vat < 0 ? 'neg' : 'zero');
+        return `
+            <tr class="${cls}">
+                <td>${q} (${rangeMap[q]})</td>
+                <td>${empty ? '—' : fmt(x.sales)}</td>
+                <td>${empty ? '—' : fmt(x.purchase)}</td>
+                <td class="${vatCls}">${empty ? '—' : (x.vat >= 0 ? '+' : '') + fmt(x.vat)}</td>
+            </tr>
+        `;
+    });
+    const t = yObj.total;
+    const tCls = t.vat > 0 ? 'pos' : (t.vat < 0 ? 'neg' : 'zero');
+    rows.push(`
+        <tr class="year-total">
+            <td>${year} 연계</td>
+            <td>${fmt(t.sales)}</td>
+            <td>${fmt(t.purchase)}</td>
+            <td class="${tCls}">${(t.vat >= 0 ? '+' : '') + fmt(t.vat)}</td>
+        </tr>
+    `);
+    body.innerHTML = rows.join('');
+}
+
+// 7) 근무자 통계 (채움) — f5 일자별(지급용)·채움
+let _chaeumWorkerData = null;
+let _chaeumWorkerSelectedKey = null;
+
+async function loadChaeumWorkerFromF5() {
+    const card = document.getElementById('c-card-ledger');
+    if (!card) return;
+
+    let sheets = null;
+    try {
+        const saved = JSON.parse(localStorage.getItem('data_chaeum_f5'));
+        if (saved && saved.sheets) sheets = saved.sheets;
+    } catch (e) {}
+
+    if (!sheets) {
+        try {
+            const fileName = '2026.04-일자별(지급용)_채움.xlsx';
+            const res = await fetch(encodeURIComponent(fileName));
+            if (res.ok) {
+                const buf = await res.arrayBuffer();
+                const wb = XLSX.read(new Uint8Array(buf), { type: 'array', dense: true });
+                sheets = {};
+                wb.SheetNames.forEach(s => {
+                    const ws = wb.Sheets[s];
+                    sheets[s] = XLSX.utils.sheet_to_json(ws, { header: 1 });
+                });
+            }
+        } catch (e) {}
+    }
+    if (!sheets) return;
+
+    const unwrap = v => (v && typeof v === 'object' && v.isFormula) ? v.value : v;
+    const toNum = v => {
+        v = unwrap(v);
+        if (v === null || v === undefined || v === '') return 0;
+        if (typeof v === 'number') return v;
+        return parseFloat(v.toString().replace(/[^0-9.\-]/g, '')) || 0;
+    };
+    const toStr = v => {
+        v = unwrap(v);
+        return (v === null || v === undefined) ? '' : v.toString().trim();
+    };
+    const serialToDay = serial => {
+        if (typeof serial !== 'number' || serial < 40000 || serial > 80000) return null;
+        const d = new Date((serial - 25569) * 86400 * 1000);
+        return { date: d, day: d.getDate(), month: d.getMonth() + 1, year: d.getFullYear() };
+    };
+
+    const summaryName = Object.keys(sheets).find(n => /\d+월채움\s*$/.test(n));
+    const dailyTotals = [];
+    if (summaryName && sheets[summaryName]) {
+        const ss = sheets[summaryName];
+        for (let i = 3; i < ss.length; i++) {
+            const r = ss[i] || [];
+            const dayLabel = toStr(r[0]);
+            const m = dayLabel.match(/^(\d+)일/);
+            if (!m) continue;
+            const day = parseInt(m[1]);
+            const count = toNum(r[1]);
+            const pay = toNum(r[2]);
+            const charge = toNum(r[3]);
+            if (count === 0 && pay === 0) continue;
+            dailyTotals.push({ day, count, pay, charge });
+        }
+    }
+
+    const workerMap = {};
+    Object.keys(sheets).forEach(sheetName => {
+        if (!/^\d+$/.test(sheetName)) return;
+        const sheet = sheets[sheetName];
+        if (!sheet || sheet.length < 4) return;
+
+        const serial = toNum(sheet[0] && sheet[0][0]);
+        const dInfo = serialToDay(serial);
+        if (!dInfo) return;
+        const dateStr = `${dInfo.month}/${dInfo.day}`;
+
+        for (let i = 3; i < sheet.length; i++) {
+            const r = sheet[i] || [];
+            const name = toStr(r[5]);
+            if (!name) continue;
+            const phone = toStr(r[6]);
+            const jumin = toStr(r[7]);
+            const site = toStr(r[2]);
+            const workTime = toStr(r[4]);
+            const pay = toNum(r[10]);
+            const charge = toNum(r[11]);
+            const paid = toStr(r[12]) === '지급완료';
+
+            const key = jumin || `${name}|${phone}`;
+            if (!workerMap[key]) {
+                workerMap[key] = { key, name, phone, jumin, days: [] };
+            }
+            workerMap[key].days.push({
+                day: dInfo.day, month: dInfo.month, year: dInfo.year,
+                dateStr, site, workTime, pay, charge, paid
+            });
+        }
+    });
+
+    const workers = Object.values(workerMap).map(w => {
+        const dayPayMap = {};
+        const daySiteSet = {};
+        w.days.forEach(d => {
+            dayPayMap[d.day] = (dayPayMap[d.day] || 0) + d.pay;
+            if (!daySiteSet[d.day]) daySiteSet[d.day] = new Set();
+            daySiteSet[d.day].add(d.site);
+        });
+        const uniqueDays = Object.keys(dayPayMap).map(Number).sort((a, b) => a - b);
+        const totalDays = uniqueDays.length;
+        const totalPay = w.days.reduce((s, d) => s + d.pay, 0);
+        const totalCharge = w.days.reduce((s, d) => s + d.charge, 0);
+
+        let maxLen = 0, maxStart = 0, maxEnd = 0;
+        if (uniqueDays.length > 0) {
+            let curStart = uniqueDays[0], curEnd = uniqueDays[0], curLen = 1;
+            maxLen = 1; maxStart = curStart; maxEnd = curEnd;
+            for (let i = 1; i < uniqueDays.length; i++) {
+                if (uniqueDays[i] === curEnd + 1) {
+                    curEnd = uniqueDays[i]; curLen++;
+                } else {
+                    curStart = uniqueDays[i]; curEnd = uniqueDays[i]; curLen = 1;
+                }
+                if (curLen > maxLen) { maxLen = curLen; maxStart = curStart; maxEnd = curEnd; }
+            }
+        }
+
+        const siteCount = {};
+        const sitePay = {};
+        Object.keys(daySiteSet).forEach(day => {
+            daySiteSet[day].forEach(site => {
+                siteCount[site] = (siteCount[site] || 0) + 1;
+            });
+        });
+        w.days.forEach(d => {
+            sitePay[d.site] = (sitePay[d.site] || 0) + d.pay;
+        });
+        const sites = Object.keys(siteCount).map(s => ({ site: s, days: siteCount[s], pay: sitePay[s] || 0 }))
+            .sort((a, b) => b.days - a.days);
+        const primarySite = sites[0] ? sites[0].site : '';
+        const latestDay = uniqueDays.length ? uniqueDays[uniqueDays.length - 1] : 0;
+
+        const firstDay = uniqueDays.length ? uniqueDays[0] : 0;
+        const lastDay = uniqueDays.length ? uniqueDays[uniqueDays.length - 1] : 0;
+        const spanDays = firstDay && lastDay ? (lastDay - firstDay + 1) : 0;
+        const attendance = spanDays > 0 ? (totalDays / spanDays) : 0;
+        const firstDayInfo = w.days.find(d => d.day === firstDay) || w.days[0] || {};
+        const lastDayInfo = w.days.slice().reverse().find(d => d.day === lastDay) || w.days[0] || {};
+        const yyyy = firstDayInfo.year || (new Date()).getFullYear();
+        const mm = firstDayInfo.month || (new Date()).getMonth() + 1;
+
+        return {
+            key: w.key, name: w.name, phone: w.phone, jumin: w.jumin,
+            days: w.days, uniqueDays, totalDays, totalPay, totalCharge,
+            maxConsecutive: { len: maxLen, start: maxStart, end: maxEnd },
+            sites, primarySite, latestDay,
+            firstDay, lastDay, spanDays, attendance,
+            firstDate: { year: firstDayInfo.year || yyyy, month: firstDayInfo.month || mm, day: firstDay },
+            lastDate: { year: lastDayInfo.year || yyyy, month: lastDayInfo.month || mm, day: lastDay }
+        };
+    });
+    workers.sort((a, b) => b.totalDays - a.totalDays || b.totalPay - a.totalPay);
+
+    const datasetMaxDay = workers.reduce((max, w) => Math.max(max, w.lastDay), 0);
+    const datasetMinDay = workers.reduce((min, w) => w.firstDay > 0 ? Math.min(min, w.firstDay) : min, datasetMaxDay || 31);
+    const datasetMonthLen = (() => {
+        const w = workers.find(x => x.firstDate && x.firstDate.year);
+        if (!w) return 31;
+        return new Date(w.firstDate.year, w.firstDate.month, 0).getDate();
+    })();
+    workers.forEach(w => {
+        const gap = datasetMaxDay - w.lastDay;
+        w.isActive = gap <= 7;
+        w.exitGap = gap;
+    });
+
+    const byVendor = {};
+    workers.forEach(w => {
+        w.sites.forEach(s => {
+            if (!byVendor[s.site]) byVendor[s.site] = [];
+            byVendor[s.site].push({ ...w, _vendorDays: s.days, _vendorPay: s.pay });
+        });
+    });
+    Object.keys(byVendor).forEach(v => {
+        byVendor[v].sort((a, b) => b._vendorDays - a._vendorDays || b._vendorPay - a._vendorPay);
+    });
+
+    const byKey = {};
+    workers.forEach(w => { byKey[w.key] = w; });
+
+    _chaeumWorkerData = { dailyTotals, workers, byVendor, byKey, datasetMaxDay, datasetMinDay, datasetMonthLen };
+
+    const tickEl = document.getElementById('c-worker-tick');
+    if (tickEl) {
+        const n = new Date();
+        tickEl.textContent = `${String(n.getHours()).padStart(2,'0')}:${String(n.getMinutes()).padStart(2,'0')}:${String(n.getSeconds()).padStart(2,'0')}`;
+    }
+
+    const totalPay = dailyTotals.reduce((s, d) => s + d.pay, 0);
+    const session = JSON.parse(localStorage.getItem('userSession') || 'null');
+    const valEl = document.getElementById('c-val-ledger');
+    if (valEl && session) {
+        valEl.classList.add('unmasked');
+        valEl.textContent = `${totalPay.toLocaleString()}원 (월 누계 지급)`;
+    }
+    if (!session) return;
+
+    renderChaeumDailyStrip();
+    populateChaeumVendorSelect();
+    renderChaeumWorkerVendorTable();
+    renderChaeumWorkerPersonList();
+
+    const wrap = document.getElementById('c-worker-wrap');
+    if (wrap) wrap.style.display = 'block';
+}
+
+function renderChaeumDailyStrip() {
+    const el = document.getElementById('c-daily-strip');
+    if (!el || !_chaeumWorkerData) return;
+    const days = _chaeumWorkerData.dailyTotals;
+    const fmtMan = v => {
+        if (v >= 10000) return Math.round(v / 10000).toLocaleString() + '만';
+        return v.toLocaleString();
+    };
+    el.innerHTML = days.map(d => `
+        <div class="daily-cell" title="${d.day}일 · ${d.count}명 · 지급 ${d.pay.toLocaleString()}원 · 청구 ${d.charge.toLocaleString()}원">
+            <div class="dc-day">${d.day}일</div>
+            <div class="dc-pay">${fmtMan(d.pay)}</div>
+            <div class="dc-cnt">👥 ${d.count}명</div>
+        </div>
+    `).join('') || '<div style="padding:8px;color:#999;font-size:0.78rem;">일별 데이터 없음</div>';
+}
+
+function populateChaeumVendorSelect() {
+    const sel = document.getElementById('c-worker-vendor-select');
+    if (!sel || !_chaeumWorkerData) return;
+    const vendors = Object.keys(_chaeumWorkerData.byVendor).sort();
+    const totalCount = _chaeumWorkerData.workers.length;
+    sel.innerHTML = `<option value="__ALL__">전체 (${totalCount}명)</option>` +
+        vendors.map(v => `<option value="${escapeHtml(v)}">${escapeHtml(v)} (${_chaeumWorkerData.byVendor[v].length}명)</option>`).join('');
+}
+
+function renderChaeumWorkerVendorTable() {
+    const body = document.getElementById('c-worker-vendor-body');
+    const sumEl = document.getElementById('c-worker-vendor-summary');
+    const sel = document.getElementById('c-worker-vendor-select');
+    if (!body || !_chaeumWorkerData) return;
+    const vendor = sel ? sel.value : '__ALL__';
+
+    let list, vendorDaysFn, vendorPayFn;
+    if (vendor === '__ALL__') {
+        list = _chaeumWorkerData.workers;
+        vendorDaysFn = w => w.totalDays;
+        vendorPayFn = w => w.totalPay;
+    } else {
+        list = _chaeumWorkerData.byVendor[vendor] || [];
+        vendorDaysFn = w => w._vendorDays;
+        vendorPayFn = w => w._vendorPay;
+    }
+
+    const totalPay = list.reduce((s, w) => s + vendorPayFn(w), 0);
+    if (sumEl) sumEl.innerHTML = `총 <b>${list.length}</b>명 · 지급 <b>${totalPay.toLocaleString()}원</b>`;
+
+    body.innerHTML = list.map(w => `
+        <tr data-key="${escapeHtml(w.key)}" onclick="selectChaeumWorker('${escapeHtml(w.key)}')">
+            <td>${escapeHtml(w.name)}</td>
+            <td class="center">${escapeHtml(w.phone)}</td>
+            <td class="center" style="font-size:0.7rem;color:#6b7280;">${escapeHtml(w.jumin)}</td>
+            <td class="num">${vendorDaysFn(w)}일</td>
+            <td class="num">${w.maxConsecutive.len}일${w.maxConsecutive.len > 1 ? ` (${w.maxConsecutive.start}~${w.maxConsecutive.end})` : ''}</td>
+            <td class="num">${vendorPayFn(w).toLocaleString()}</td>
+            <td class="center">${w.latestDay}일</td>
+        </tr>
+    `).join('') || '<tr><td colspan="7" style="text-align:center;color:#999;padding:20px;">데이터 없음</td></tr>';
+}
+
+function renderChaeumWorkerPersonList() {
+    const list = document.getElementById('c-worker-person-list');
+    const sumEl = document.getElementById('c-worker-person-summary');
+    const search = document.getElementById('c-worker-search');
+    if (!list || !_chaeumWorkerData) return;
+    const q = (search ? search.value : '').trim().toLowerCase();
+
+    let filtered = _chaeumWorkerData.workers;
+    if (q) {
+        filtered = filtered.filter(w =>
+            w.name.toLowerCase().includes(q) ||
+            (w.phone || '').toLowerCase().includes(q) ||
+            (w.jumin || '').includes(q)
+        );
+    }
+
+    if (sumEl) sumEl.innerHTML = `검색 결과 <b>${filtered.length}</b>명 / 전체 <b>${_chaeumWorkerData.workers.length}</b>명`;
+
+    list.innerHTML = filtered.slice(0, 200).map(w => `
+        <tr data-key="${escapeHtml(w.key)}" class="${_chaeumWorkerSelectedKey === w.key ? 'selected' : ''}" onclick="selectChaeumWorker('${escapeHtml(w.key)}')">
+            <td>${escapeHtml(w.name)}</td>
+            <td class="center" style="font-size:0.7rem;color:#6b7280;">${escapeHtml(w.primarySite)}</td>
+            <td class="num">${w.totalDays}일</td>
+            <td class="num">${w.totalPay.toLocaleString()}</td>
+        </tr>
+    `).join('') || '<tr><td colspan="4" style="text-align:center;color:#999;padding:20px;">검색 결과 없음</td></tr>';
+}
+
+function selectChaeumWorker(key) {
+    if (!_chaeumWorkerData) return;
+    _chaeumWorkerSelectedKey = key;
+    const w = _chaeumWorkerData.byKey[key];
+    if (!w) return;
+
+    openChaeumWorkerModal(key);
+
+    switchChaeumWorkerTab('person');
+    renderChaeumWorkerPersonList();
+
+    const detail = document.getElementById('c-worker-detail');
+    if (!detail) return;
+
+    const sortedDays = [...w.uniqueDays].sort((a, b) => a - b);
+    const inStreak = new Set();
+    for (let d = w.maxConsecutive.start; d <= w.maxConsecutive.end; d++) inStreak.add(d);
+    const dayPills = sortedDays.map(d =>
+        `<span class="worker-detail-day-pill ${inStreak.has(d) ? 'streak' : ''}">${d}일</span>`
+    ).join(' ');
+    const sitesHtml = w.sites.map(s =>
+        `<div>• <b>${escapeHtml(s.site)}</b>: ${s.days}일 · ${s.pay.toLocaleString()}원</div>`
+    ).join('');
+
+    detail.innerHTML = `
+        <h4>${escapeHtml(w.name)}<small>${escapeHtml(w.phone)} · ${escapeHtml(w.jumin)}</small></h4>
+        <div class="worker-detail-stats">
+            <div class="worker-detail-stat"><div class="label">총 근무일수</div><div class="value">${w.totalDays}일</div></div>
+            <div class="worker-detail-stat highlight"><div class="label">최대 연속 근무</div><div class="value">${w.maxConsecutive.len}일${w.maxConsecutive.len > 1 ? ` (${w.maxConsecutive.start}~${w.maxConsecutive.end})` : ''}</div></div>
+            <div class="worker-detail-stat"><div class="label">총 지급액</div><div class="value">${w.totalPay.toLocaleString()}원</div></div>
+            <div class="worker-detail-stat"><div class="label">평균 일급</div><div class="value">${w.totalDays > 0 ? Math.round(w.totalPay / w.totalDays).toLocaleString() : 0}원</div></div>
+        </div>
+        <div class="worker-detail-section-title">📍 근무 현장 (현장별 일수·지급액)</div>
+        <div class="worker-detail-sites">${sitesHtml}</div>
+        <div class="worker-detail-section-title">📅 근무 일자 (최대 연속 ${w.maxConsecutive.len}일은 노란색)</div>
+        <div class="worker-detail-days">${dayPills}</div>
+    `;
+}
+
+function openChaeumWorkerModal(key) {
+    if (!_chaeumWorkerData) return;
+    const w = _chaeumWorkerData.byKey[key];
+    if (!w) return;
+    const modal = document.getElementById('worker-card-modal');
+    const body = document.getElementById('worker-modal-body');
+    if (!modal || !body) return;
+
+    const { datasetMaxDay, datasetMonthLen } = _chaeumWorkerData;
+    const fmtDate = (info) => {
+        if (!info || !info.day) return '—';
+        return `${info.year}-${String(info.month).padStart(2, '0')}-${String(info.day).padStart(2, '0')}`;
+    };
+    const fmtMD = (info) => {
+        if (!info || !info.day) return '—';
+        return `${String(info.month).padStart(2, '0')}/${String(info.day).padStart(2, '0')}`;
+    };
+
+    const juminMasked = w.jumin
+        ? w.jumin.replace(/^(\d{6})[-]?(\d?).*/, '$1-$2******').replace(/-$/, '-*******')
+        : '—';
+
+    const initial = (w.name || '?').slice(0, 1);
+    const empNo = (w.jumin && w.jumin.length >= 6) ? w.jumin.slice(0, 6) : (w.phone ? w.phone.replace(/-/g, '').slice(-4) : 'N/A');
+
+    const exitText = w.isActive ? '재직중' : `추정 ${fmtMD(w.lastDate)}`;
+    const exitSub = w.isActive
+        ? `최근 근무: ${w.lastDay}일 (${w.exitGap}일 전)`
+        : `${w.exitGap}일간 미출근`;
+
+    const idCardHtml = `
+        <div class="wc-card">
+            <div class="wc-id-band">
+                <span class="wc-id-co">CHAEUM · 일용근로자 카드</span>
+                <span class="wc-id-no">EMP-${empNo}</span>
+            </div>
+            <div class="wc-id-main">
+                <div class="wc-avatar"><span class="wc-avatar-text">${escapeHtml(initial)}</span></div>
+                <div class="wc-info">
+                    <div class="wc-name">
+                        ${escapeHtml(w.name)}
+                        <span class="wc-status-badge ${w.isActive ? 'active' : 'inactive'}">${w.isActive ? '● 재직중' : '◐ 추정 퇴사'}</span>
+                    </div>
+                    <div class="wc-meta">
+                        <div class="wc-meta-item"><span class="wc-meta-label">📞 연락처</span><span class="wc-meta-val">${escapeHtml(w.phone || '—')}</span></div>
+                        <div class="wc-meta-item"><span class="wc-meta-label">🆔 주민번호</span><span class="wc-meta-val">${escapeHtml(juminMasked)}</span></div>
+                        <div class="wc-meta-item"><span class="wc-meta-label">📍 주현장</span><span class="wc-meta-val">${escapeHtml(w.primarySite || '—')}</span></div>
+                        <div class="wc-meta-item"><span class="wc-meta-label">🏢 현장수</span><span class="wc-meta-val">${w.sites.length}개소</span></div>
+                    </div>
+                </div>
+            </div>
+            <div class="wc-dates">
+                <div class="wc-date-card entry">
+                    <div class="wcd-label">📥 입사일 (자동)</div>
+                    <div class="wcd-val">${fmtDate(w.firstDate)}</div>
+                    <div class="wcd-sub">데이터 첫 근무일</div>
+                </div>
+                <div class="wc-date-card exit ${w.isActive ? 'active' : ''}">
+                    <div class="wcd-label">📤 퇴사일 (추정)</div>
+                    <div class="wcd-val">${exitText}</div>
+                    <div class="wcd-sub">${exitSub}</div>
+                </div>
+                <div class="wc-date-card">
+                    <div class="wcd-label">📆 근무일수</div>
+                    <div class="wcd-val">${w.totalDays}일</div>
+                    <div class="wcd-sub">고유 근무일 수</div>
+                </div>
+                <div class="wc-date-card">
+                    <div class="wcd-label">📊 활동 기간</div>
+                    <div class="wcd-val">${w.spanDays}일</div>
+                    <div class="wcd-sub">출근율 ${(w.attendance * 100).toFixed(0)}%</div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    const avgPay = w.totalDays > 0 ? Math.round(w.totalPay / w.totalDays) : 0;
+    const statsHtml = `
+        <div class="wc-section">
+            <h4>💼 근무 통계 <span class="wcs-meta">${w.firstDate.year}년 ${w.firstDate.month}월 기준</span></h4>
+            <div class="wc-stats">
+                <div class="wc-stat-card"><div class="wcs-label">총 지급액</div><div class="wcs-val">${w.totalPay.toLocaleString()}원</div><div class="wcs-sub">${w.totalDays}일 합산</div></div>
+                <div class="wc-stat-card"><div class="wcs-label">평균 일급</div><div class="wcs-val">${avgPay.toLocaleString()}원</div><div class="wcs-sub">총지급 ÷ 근무일</div></div>
+                <div class="wc-stat-card"><div class="wcs-label">최대 연속</div><div class="wcs-val">${w.maxConsecutive.len}일</div><div class="wcs-sub">${w.maxConsecutive.len > 1 ? `${w.maxConsecutive.start}~${w.maxConsecutive.end}일` : '—'}</div></div>
+                <div class="wc-stat-card"><div class="wcs-label">총 청구액</div><div class="wcs-val" style="color:#1f618d;">${w.totalCharge.toLocaleString()}원</div><div class="wcs-sub">현장 청구 합산</div></div>
+            </div>
+        </div>
+    `;
+
+    const monthLen = datasetMonthLen || 31;
+    const workedSet = new Set(w.uniqueDays);
+    const streakSet = new Set();
+    if (w.maxConsecutive.len > 1) {
+        for (let d = w.maxConsecutive.start; d <= w.maxConsecutive.end; d++) streakSet.add(d);
+    }
+    const firstWd = new Date(w.firstDate.year, w.firstDate.month - 1, 1).getDay();
+    const calCells = [];
+    for (let i = 0; i < firstWd; i++) calCells.push(`<div class="wc-cal-cell outside"></div>`);
+    for (let d = 1; d <= monthLen; d++) {
+        const isWorked = workedSet.has(d);
+        const isStreak = streakSet.has(d);
+        const isEntry = d === w.firstDay;
+        const isExit = !w.isActive && d === w.lastDay;
+        const cls = ['wc-cal-cell'];
+        if (isStreak) cls.push('streak');
+        else if (isWorked) cls.push('worked');
+        if (isEntry) cls.push('entry-day');
+        if (isExit) cls.push('exit-day');
+        const dayPay = w.days.filter(x => x.day === d).reduce((s, x) => s + x.pay, 0);
+        const payText = dayPay > 0 ? (dayPay >= 10000 ? Math.round(dayPay / 10000) + '만' : '') : '';
+        const tip = isWorked
+            ? `${d}일 · 지급 ${dayPay.toLocaleString()}원${isEntry ? ' · 📥입사' : ''}${isExit ? ' · 📤퇴사' : ''}`
+            : `${d}일 · 미근무`;
+        calCells.push(`<div class="${cls.join(' ')}" title="${tip}">${d}<span class="wcc-pay">${payText}</span></div>`);
+    }
+    const calHtml = `
+        <div class="wc-section">
+            <h4>📅 근무 캘린더 <span class="wcs-meta">${w.firstDate.year}-${String(w.firstDate.month).padStart(2, '0')} · 데이터 ${datasetMaxDay}일까지</span></h4>
+            <div class="wc-cal">
+                <div class="wc-cal-cell outside" style="background:#fff5f5;color:#e74c3c;border:none;">일</div>
+                <div class="wc-cal-cell outside" style="background:transparent;color:#7f8c8d;border:none;">월</div>
+                <div class="wc-cal-cell outside" style="background:transparent;color:#7f8c8d;border:none;">화</div>
+                <div class="wc-cal-cell outside" style="background:transparent;color:#7f8c8d;border:none;">수</div>
+                <div class="wc-cal-cell outside" style="background:transparent;color:#7f8c8d;border:none;">목</div>
+                <div class="wc-cal-cell outside" style="background:transparent;color:#7f8c8d;border:none;">금</div>
+                <div class="wc-cal-cell outside" style="background:#f0f8ff;color:#2980b9;border:none;">토</div>
+                ${calCells.join('')}
+            </div>
+            <div class="wc-cal-legend">
+                <span><i class="lg-box" style="background:#d1fae5;border:1px solid #6ee7b7;"></i>근무</span>
+                <span><i class="lg-box" style="background:#fde68a;border:1px solid #f59e0b;"></i>최대 연속 (${w.maxConsecutive.len}일)</span>
+                <span><i class="lg-box" style="background:white;border:2px solid #047857;"></i>입사일</span>
+                <span><i class="lg-box" style="background:white;border:2px solid #c0392b;"></i>퇴사일(추정)</span>
+            </div>
+        </div>
+    `;
+
+    const sitesHtml = `
+        <div class="wc-section">
+            <h4>📍 근무 현장 <span class="wcs-meta">총 ${w.sites.length}개소</span></h4>
+            <div class="wc-sites">
+                ${w.sites.map(s => `
+                    <div class="wc-site-item">
+                        <span class="wcsi-name">${escapeHtml(s.site)}</span>
+                        <span class="wcsi-days">${s.days}일</span>
+                        <span class="wcsi-pay">${s.pay.toLocaleString()}원</span>
+                    </div>
+                `).join('') || '<div style="color:#9ca3af;font-size:0.78rem;">근무 현장 없음</div>'}
+            </div>
+        </div>
+    `;
+
+    const sortedDayEntries = [...w.days].sort((a, b) => b.day - a.day);
+    const ledgerRows = sortedDayEntries.map(d => `
+        <tr>
+            <td class="date">${String(d.month).padStart(2, '0')}/${String(d.day).padStart(2, '0')}</td>
+            <td class="site">${escapeHtml(d.site || '—')}</td>
+            <td class="time">${escapeHtml(d.workTime || '—')}</td>
+            <td class="pay">${d.pay.toLocaleString()}</td>
+            <td class="charge">${d.charge.toLocaleString()}</td>
+            <td class="status"><span class="${d.paid ? 'badge-paid' : 'badge-unpaid'}">${d.paid ? '지급완료' : '미지급'}</span></td>
+        </tr>
+    `).join('');
+    const ledgerHtml = `
+        <div class="wc-section">
+            <h4>📋 일자별 근무 내역 <span class="wcs-meta">총 ${w.days.length}건</span></h4>
+            <div class="wc-ledger-wrap">
+                <table class="wc-ledger-table">
+                    <thead><tr><th>날짜</th><th>현장</th><th>시간</th><th>지급</th><th>청구</th><th>상태</th></tr></thead>
+                    <tbody>${ledgerRows || '<tr><td colspan="6" style="text-align:center;color:#9ca3af;padding:14px;">근무 내역 없음</td></tr>'}</tbody>
+                </table>
+            </div>
+        </div>
+    `;
+
+    body.innerHTML = idCardHtml + statsHtml + calHtml + sitesHtml + ledgerHtml;
+    modal.style.display = 'block';
+    document.body.style.overflow = 'hidden';
+}
+
+function switchChaeumWorkerTab(tab) {
+    document.querySelectorAll('#c-card-ledger .worker-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
+    const v = document.getElementById('c-worker-vendor');
+    const p = document.getElementById('c-worker-person');
+    if (v) v.style.display = tab === 'vendor' ? 'block' : 'none';
+    if (p) p.style.display = tab === 'person' ? 'block' : 'none';
+}
+
+// =====================================================================
+// 채움 외국인 근로자 통계 — f4 외국인 청구용
+// 요약: f4 '2026년 04월채움' 시트의 외국인 업체별 합계
+// 상세: f4 일자별 시트(소노벨, 소노캄 ...) → 인명/현장/지급액
+// 단, 일별 시트가 아닌 현장별 시트로, 각 행이 한 명의 한 기간 근무
+// =====================================================================
+
+let _chaeumForeignData = null;
+let _chaeumForeignSelectedKey = null;
+
+async function loadChaeumForeignWorkerFromF4() {
+    const card = document.getElementById('c-card-foreign-worker');
+    if (!card) return;
+
+    let sheets = null;
+    try {
+        const saved = JSON.parse(localStorage.getItem('data_chaeum_f4'));
+        if (saved && saved.sheets) sheets = saved.sheets;
+    } catch (e) {}
+
+    if (!sheets) {
+        try {
+            const fileName = '2026.04-업체별(청구용)_외국인 채움.xlsx';
+            const res = await fetch(encodeURIComponent(fileName));
+            if (res.ok) {
+                const buf = await res.arrayBuffer();
+                const wb = XLSX.read(new Uint8Array(buf), { type: 'array', dense: true });
+                sheets = {};
+                wb.SheetNames.forEach(s => {
+                    const ws = wb.Sheets[s];
+                    sheets[s] = XLSX.utils.sheet_to_json(ws, { header: 1 });
+                });
+            }
+        } catch (e) {}
+    }
+    if (!sheets) return;
+
+    const summaryName = Object.keys(sheets).find(n => /\d+월채움\s*$/.test(n))
+                      || Object.keys(sheets).find(n => n.includes('채움'));
+
+    const unwrap = v => (v && typeof v === 'object' && v.isFormula) ? v.value : v;
+    const toNum = v => {
+        v = unwrap(v);
+        if (v === null || v === undefined || v === '') return 0;
+        if (typeof v === 'number') return v;
+        return parseFloat(v.toString().replace(/[^0-9.\-]/g, '')) || 0;
+    };
+    const toStr = v => {
+        v = unwrap(v);
+        return (v === null || v === undefined) ? '' : v.toString().trim();
+    };
+
+    // 1) 요약 시트에서 업체별 합계
+    // 헤더 row 3: 0=도급, 1=상호, 2=지급액, 3=청구액, 4=차액, 5=결재, 6=입금, 7=미입금(세후)
+    const vendorTotals = []; // [{name, pay, charge, diff, status, paid, unpaid}]
+    let grandPay = 0, grandCharge = 0, grandUnpaid = 0;
+    if (summaryName && sheets[summaryName]) {
+        const ss = sheets[summaryName];
+        for (let i = 4; i < ss.length; i++) {
+            const r = ss[i] || [];
+            const name = toStr(r[1]);
+            if (!name) continue;
+            if (name === '계' || name.startsWith('합계')) break;
+            const pay = toNum(r[2]);
+            const charge = toNum(r[3]);
+            if (pay === 0 && charge === 0) continue;
+            const diff = toNum(r[4]);
+            const status = toStr(r[5]);
+            const paid = toNum(r[6]);
+            const unpaid = toNum(r[7]);
+            vendorTotals.push({ name, pay, charge, diff, status, paid, unpaid });
+            grandPay += pay; grandCharge += charge; grandUnpaid += unpaid;
+        }
+    }
+
+    // 2) 각 업체(현장) 시트 → 외국인 인원 데이터
+    // 헤더 row 3: 0=날짜(범위), 1=업체, 2=현장, 3=업무, 4=근무시간, 5=이름, 6=전화, 7=주민, 8=은행, 9=계좌, 10=지급액, 11=청구액
+    // 일부 시트(소노캄)는 다르게 헤더(7=14유닛이상, 8=주민) — 안전하게 이름은 col 5로 일관
+    const workerMap = {};
+    const vendorWorkers = {};
+    Object.keys(sheets).forEach(sheetName => {
+        if (sheetName === summaryName) return;
+        const sh = sheets[sheetName];
+        if (!sh || sh.length < 4) return;
+
+        for (let i = 4; i < sh.length; i++) {
+            const r = sh[i] || [];
+            const name = toStr(r[5]);
+            if (!name) continue;
+            const period = toStr(r[0]);
+            const vendor = toStr(r[1]) || sheetName;
+            const site = toStr(r[2]) || sheetName;
+            const work = toStr(r[3]);
+            const workTime = toStr(r[4]);
+            const phone = toStr(r[6]);
+            const jumin = toStr(r[7]);
+            const pay = toNum(r[10]);
+            const charge = toNum(r[11]);
+            if (pay === 0 && charge === 0) continue;
+
+            const key = `${name}|${sheetName}|${i}`;
+            const entry = {
+                key, name, period, vendor, site, work, workTime, phone, jumin,
+                pay, charge, sheet: sheetName
+            };
+
+            const personKey = `${name}|${jumin || phone || sheetName}`;
+            if (!workerMap[personKey]) {
+                workerMap[personKey] = {
+                    key: personKey, name, jumin, phone, entries: [],
+                    totalPay: 0, totalCharge: 0, sites: new Set()
+                };
+            }
+            workerMap[personKey].entries.push(entry);
+            workerMap[personKey].totalPay += pay;
+            workerMap[personKey].totalCharge += charge;
+            workerMap[personKey].sites.add(sheetName);
+
+            if (!vendorWorkers[sheetName]) vendorWorkers[sheetName] = [];
+            vendorWorkers[sheetName].push(entry);
+        }
+    });
+
+    // 인원 카드 정리
+    const workers = Object.values(workerMap).map(w => ({
+        ...w,
+        sitesArr: Array.from(w.sites),
+        primarySite: Array.from(w.sites)[0] || '',
+        entryCount: w.entries.length
+    })).sort((a, b) => b.totalPay - a.totalPay);
+
+    const byKey = {};
+    workers.forEach(w => { byKey[w.key] = w; });
+
+    _chaeumForeignData = {
+        vendorTotals, vendorWorkers, workers, byKey,
+        totals: { pay: grandPay, charge: grandCharge, unpaid: grandUnpaid }
+    };
+
+    const tickEl = document.getElementById('c-foreign-worker-tick');
+    if (tickEl) {
+        const n = new Date();
+        tickEl.textContent = `${String(n.getHours()).padStart(2,'0')}:${String(n.getMinutes()).padStart(2,'0')}:${String(n.getSeconds()).padStart(2,'0')}`;
+    }
+
+    const session = JSON.parse(localStorage.getItem('userSession') || 'null');
+    const valEl = document.getElementById('c-val-foreign-worker');
+    if (valEl && session) {
+        valEl.classList.add('unmasked');
+        valEl.textContent = `${grandPay.toLocaleString()}원 (외국인 ${workers.length}명 / ${vendorTotals.length}현장)`;
+    }
+    if (!session) return;
+
+    // 업체별 strip 렌더 (일별 strip 대신 현장별 strip)
+    renderChaeumForeignVendorStrip();
+    populateChaeumForeignVendorSelect();
+    renderChaeumForeignVendorTable();
+    renderChaeumForeignPersonList();
+
+    const wrap = document.getElementById('c-foreign-worker-wrap');
+    if (wrap) wrap.style.display = 'block';
+}
+
+function renderChaeumForeignVendorStrip() {
+    const el = document.getElementById('c-foreign-strip');
+    if (!el || !_chaeumForeignData) return;
+    const { vendorTotals } = _chaeumForeignData;
+    const fmtMan = v => v >= 10000 ? Math.round(v / 10000).toLocaleString() + '만' : v.toLocaleString();
+    if (vendorTotals.length === 0) {
+        el.innerHTML = '<div style="padding:8px;color:#999;font-size:0.78rem;">외국인 데이터 없음</div>';
+        return;
+    }
+    el.innerHTML = vendorTotals.map(v => {
+        const persons = (_chaeumForeignData.vendorWorkers[v.name] || []).length;
+        return `
+            <div class="daily-cell" title="${escapeHtml(v.name)} · 지급 ${v.pay.toLocaleString()}원 · 청구 ${v.charge.toLocaleString()}원${v.unpaid > 0 ? ' · 미입금 ' + v.unpaid.toLocaleString() + '원' : ''}">
+                <div class="dc-day">${escapeHtml(v.name)}</div>
+                <div class="dc-pay">${fmtMan(v.pay)}</div>
+                <div class="dc-cnt">👥 ${persons}건</div>
+            </div>
+        `;
+    }).join('');
+}
+
+function populateChaeumForeignVendorSelect() {
+    const sel = document.getElementById('c-foreign-vendor-select');
+    if (!sel || !_chaeumForeignData) return;
+    const vendors = Object.keys(_chaeumForeignData.vendorWorkers).sort();
+    const totalCount = _chaeumForeignData.workers.length;
+    sel.innerHTML = `<option value="__ALL__">전체 현장 (${totalCount}명)</option>` +
+        vendors.map(v => `<option value="${escapeHtml(v)}">${escapeHtml(v)} (${_chaeumForeignData.vendorWorkers[v].length}건)</option>`).join('');
+}
+
+function renderChaeumForeignVendorTable() {
+    const body = document.getElementById('c-foreign-vendor-body');
+    const sumEl = document.getElementById('c-foreign-vendor-summary');
+    const sel = document.getElementById('c-foreign-vendor-select');
+    if (!body || !_chaeumForeignData) return;
+    const vendor = sel ? sel.value : '__ALL__';
+
+    let entries;
+    if (vendor === '__ALL__') {
+        entries = [];
+        Object.values(_chaeumForeignData.vendorWorkers).forEach(arr => entries.push(...arr));
+    } else {
+        entries = _chaeumForeignData.vendorWorkers[vendor] || [];
+    }
+
+    const totalPay = entries.reduce((s, e) => s + e.pay, 0);
+    const totalCharge = entries.reduce((s, e) => s + e.charge, 0);
+    if (sumEl) sumEl.innerHTML = `총 <b>${entries.length}</b>건 · 지급 <b>${totalPay.toLocaleString()}원</b> · 청구 <b>${totalCharge.toLocaleString()}원</b>`;
+
+    body.innerHTML = entries.map(e => `
+        <tr onclick="selectChaeumForeignWorker('${escapeHtml(e.name)}|${escapeHtml(e.jumin || e.phone || e.sheet)}')">
+            <td>${escapeHtml(e.name)}</td>
+            <td class="center" style="font-size:0.7rem;color:#6b7280;">${escapeHtml(e.sheet)}</td>
+            <td>${escapeHtml(e.work || '—')}</td>
+            <td class="center" style="font-size:0.7rem;">${escapeHtml(e.period || '—')}</td>
+            <td class="num">${e.pay.toLocaleString()}</td>
+            <td class="num">${e.charge.toLocaleString()}</td>
+        </tr>
+    `).join('') || '<tr><td colspan="6" style="text-align:center;color:#999;padding:20px;">데이터 없음</td></tr>';
+}
+
+function renderChaeumForeignPersonList() {
+    const list = document.getElementById('c-foreign-person-list');
+    const sumEl = document.getElementById('c-foreign-person-summary');
+    const search = document.getElementById('c-foreign-search');
+    if (!list || !_chaeumForeignData) return;
+    const q = (search ? search.value : '').trim().toLowerCase();
+
+    let filtered = _chaeumForeignData.workers;
+    if (q) {
+        filtered = filtered.filter(w =>
+            w.name.toLowerCase().includes(q) ||
+            (w.phone || '').toLowerCase().includes(q) ||
+            (w.jumin || '').includes(q)
+        );
+    }
+
+    if (sumEl) sumEl.innerHTML = `검색 결과 <b>${filtered.length}</b>명 / 전체 <b>${_chaeumForeignData.workers.length}</b>명`;
+
+    list.innerHTML = filtered.slice(0, 200).map(w => `
+        <tr data-key="${escapeHtml(w.key)}" class="${_chaeumForeignSelectedKey === w.key ? 'selected' : ''}" onclick="selectChaeumForeignWorker('${escapeHtml(w.key)}')">
+            <td>${escapeHtml(w.name)}</td>
+            <td class="center" style="font-size:0.7rem;color:#6b7280;">${escapeHtml(w.primarySite)}</td>
+            <td class="num">${w.entryCount}건</td>
+            <td class="num">${w.totalPay.toLocaleString()}</td>
+        </tr>
+    `).join('') || '<tr><td colspan="4" style="text-align:center;color:#999;padding:20px;">검색 결과 없음</td></tr>';
+}
+
+function selectChaeumForeignWorker(key) {
+    if (!_chaeumForeignData) return;
+    _chaeumForeignSelectedKey = key;
+    const w = _chaeumForeignData.byKey[key];
+    if (!w) return;
+    renderChaeumForeignPersonList();
+
+    const detail = document.getElementById('c-foreign-detail');
+    if (!detail) return;
+
+    const sitesHtml = w.sitesArr.map(s => `<div>• <b>${escapeHtml(s)}</b></div>`).join('');
+    const entriesRows = w.entries.map(e => `
+        <tr>
+            <td class="date">${escapeHtml(e.period || '—')}</td>
+            <td class="site">${escapeHtml(e.site || e.sheet)}</td>
+            <td class="time">${escapeHtml(e.work || '—')}</td>
+            <td class="pay">${e.pay.toLocaleString()}</td>
+            <td class="charge">${e.charge.toLocaleString()}</td>
+        </tr>
+    `).join('');
+
+    detail.innerHTML = `
+        <h4>${escapeHtml(w.name)}<small>${escapeHtml(w.phone || '—')} · ${escapeHtml(w.jumin || '—')}</small></h4>
+        <div class="worker-detail-stats">
+            <div class="worker-detail-stat"><div class="label">총 근무 건수</div><div class="value">${w.entryCount}건</div></div>
+            <div class="worker-detail-stat highlight"><div class="label">현장 수</div><div class="value">${w.sitesArr.length}개</div></div>
+            <div class="worker-detail-stat"><div class="label">총 지급액</div><div class="value">${w.totalPay.toLocaleString()}원</div></div>
+            <div class="worker-detail-stat"><div class="label">총 청구액</div><div class="value">${w.totalCharge.toLocaleString()}원</div></div>
+        </div>
+        <div class="worker-detail-section-title">📍 근무 현장</div>
+        <div class="worker-detail-sites">${sitesHtml}</div>
+        <div class="worker-detail-section-title">📋 근무 내역</div>
+        <div class="wc-ledger-wrap" style="max-height: 220px;">
+            <table class="wc-ledger-table">
+                <thead><tr><th>기간</th><th>현장</th><th>업무</th><th>지급</th><th>청구</th></tr></thead>
+                <tbody>${entriesRows}</tbody>
+            </table>
+        </div>
+    `;
+}
+
+function switchChaeumForeignTab(tab) {
+    document.querySelectorAll('#c-card-foreign-worker .worker-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
+    const v = document.getElementById('c-foreign-vendor');
+    const p = document.getElementById('c-foreign-person');
+    if (v) v.style.display = tab === 'vendor' ? 'block' : 'none';
+    if (p) p.style.display = tab === 'person' ? 'block' : 'none';
+}
+
 // --- AUTH LOGIC ---
 
 function toggleModal(id) {
@@ -2174,103 +4202,79 @@ function applyPermissions(grade, name) {
     // Reveal masked data for both companies
     ['h', 'c'].forEach(prefix => {
         const companyKey = prefix === 'h' ? 'human' : 'chaeum';
-        
-        // 1. 미입금
+
+        // 1. 미입금 — 휴먼은 f7, 채움은 f6 자동 반영. 둘 다 실패하면 fallback.
         const unpaidEl = document.getElementById(`${prefix}-val-unpaid`);
         if (unpaidEl) {
             unpaidEl.classList.add('unmasked');
-            const saved = JSON.parse(localStorage.getItem(`data_${companyKey}_unpaid`));
-            if (saved && saved.length > 0) {
-                const total = saved.reduce((acc, row) => {
-                    const val = parseInt(row[1].replace(/[^0-9]/g, '')) || 0;
-                    return acc + val;
-                }, 0);
-                unpaidEl.textContent = total.toLocaleString() + '원';
+            if (prefix === 'h') {
+                // loadHumanUnpaidFromF7가 자동 반영 (startDigitalClock에서 호출)
             } else {
-                unpaidEl.textContent = prefix === 'h' ? '149,816,396원' : '85,420,000원';
+                loadChaeumUnpaidFromF6();
             }
         }
 
-        // 2. 매출액 — 휴먼은 f7(금전출납)에서 자동 반영(loadHumanSalesFromF7), 채움은 기존 로직 유지
+        // 2. 매출액 — 휴먼은 f7, 채움은 f6 자동 반영
         const salesEl = document.getElementById(`${prefix}-val-sales`);
         if (salesEl) {
             salesEl.classList.add('unmasked');
             if (prefix === 'h') {
                 loadHumanSalesFromF7();
             } else {
-                const saved = JSON.parse(localStorage.getItem(`data_${companyKey}_sales`));
-                if (saved && saved.data && saved.data.length > 0) {
-                    const total = saved.data.reduce((acc, row) => {
-                        let amountStr = (row[2] || '0').toString();
-                        return acc + (parseInt(amountStr.replace(/[^0-9]/g, '')) || 0);
-                    }, 0);
-                    salesEl.textContent = total.toLocaleString() + '원';
-                } else {
-                    salesEl.textContent = '780,000,000원';
-                }
+                loadChaeumSalesFromF6();
             }
         }
 
-        // 3. 매입계산서 — 휴먼은 f1 업체별 청구 통계로 대체(loadHumanBillingFromF1), 채움은 기존 로직 유지
+        // 3. 업체별 청구 통계 — 휴먼은 f1, 채움은 f3
         const purchaseEl = document.getElementById(`${prefix}-val-purchase`);
         if (purchaseEl) {
             purchaseEl.classList.add('unmasked');
             if (prefix === 'h') {
                 loadHumanBillingFromF1();
             } else {
-                const saved = JSON.parse(localStorage.getItem(`data_${companyKey}_purchase`));
-                if (saved && saved.data && saved.data.length > 0) {
-                    const total = saved.data.reduce((acc, row) => acc + (parseInt(row[2].toString().replace(/[^0-9]/g, '')) || 0), 0);
-                    purchaseEl.innerHTML = `<div class="stat-value" style="font-size: 1.8rem;">${total.toLocaleString()}원</div>`;
-                } else {
-                    purchaseEl.innerHTML = `<div class="stat-value" style="font-size: 1.8rem;">210,550,000원</div>`;
-                }
+                loadChaeumBillingFromF3();
             }
         }
 
-        // 4. 현재 잔액 장부 — 휴먼은 근무자 통계로 대체(loadHumanWorkerFromF2), 채움은 기존 로직 유지
+        // 4. 근무자 통계 — 휴먼은 f2, 채움은 f5
         const ledgerEl = document.getElementById(`${prefix}-val-ledger`);
         if (ledgerEl) {
             ledgerEl.classList.add('unmasked');
             if (prefix === 'h') {
                 loadHumanWorkerFromF2();
             } else {
-                const saved = JSON.parse(localStorage.getItem(`data_${companyKey}_ledger`));
-                if (saved && saved.data && saved.data.length > 0) {
-                    const latestRow = saved.data[0];
-                    const balance = parseInt((latestRow[4] || 0).toString().replace(/[^0-9-]/g, '')) || 0;
-                    ledgerEl.textContent = balance.toLocaleString() + '원';
-                } else {
-                    ledgerEl.textContent = '450,220,000원';
-                }
+                loadChaeumWorkerFromF5();
             }
         }
 
-        // 은행 계좌 현황 — 휴먼은 f7 '시재'에서 자동 반영(loadHumanBankFromF7), 채움은 기존 로직 유지
+        // 은행 계좌 — 휴먼은 f7, 채움은 f6
         const bankEl = document.getElementById(`${prefix}-val-bank`);
         if (bankEl) {
             bankEl.classList.add('unmasked');
             if (prefix === 'h') {
                 loadHumanBankFromF7();
             } else {
-                const saved = JSON.parse(localStorage.getItem(`data_${companyKey}_bank`));
-                if (saved && saved.data && saved.data.length > 0) {
-                    const total = saved.data.reduce((acc, row) => acc + (parseInt(row[1].toString().replace(/[^0-9]/g, '')) || 0), 0);
-                    bankEl.textContent = total.toLocaleString() + '원';
-                } else {
-                    bankEl.textContent = '125,440,000원';
-                }
+                loadChaeumBankFromF6();
             }
         }
 
-        // 5. 분기별 부가세 (휴먼) / 현재 잔액 (채움)
+        // 5. 분기별 부가세 — 휴먼은 f7, 채움은 f6
         const bal2026El = document.getElementById(`${prefix}-val-bal-2026`);
         if (bal2026El) {
             bal2026El.classList.add('unmasked');
             if (prefix === 'h') {
                 loadHumanVATFromF7();
             } else {
-                bal2026El.textContent = '150,880,000원';
+                loadChaeumVATFromF6();
+            }
+        }
+
+        // 외국인 근로자 통계 (채움 전용, 신규)
+        if (prefix === 'c') {
+            const foreignEl = document.getElementById('c-val-foreign-worker');
+            if (foreignEl) {
+                foreignEl.classList.add('unmasked');
+                loadChaeumForeignWorkerFromF4();
             }
         }
 
@@ -2313,7 +4317,8 @@ function applyPermissions(grade, name) {
     // Handle visibility based on grade
     const gradeAOnlyIds = [
         'h-card-ledger', 'h-card-bal-2026', 'h-card-usage', 'h-card-bank', 'h-card-daily-worker',
-        'c-card-ledger', 'c-card-bal-2026', 'c-card-usage', 'c-card-bank', 'c-card-daily-worker'
+        'c-card-ledger', 'c-card-bal-2026', 'c-card-usage', 'c-card-bank', 'c-card-daily-worker',
+        'c-card-foreign-worker'
     ];
 
     if (grade === 'B') {
